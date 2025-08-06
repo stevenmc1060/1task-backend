@@ -78,8 +78,6 @@ class BaseDocument(BaseModel):
     def to_cosmos_dict(self) -> dict:
         """Convert to dictionary format for CosmosDB"""
         data = self.model_dump()
-        if data.get('id') is None:
-            data.pop('id', None)  # Let CosmosDB generate the ID
         
         # Convert datetime and date objects to ISO strings
         for field_name, field_value in data.items():
@@ -202,8 +200,6 @@ class Task(BaseDocument):
     def to_cosmos_dict(self) -> dict:
         """Convert to dictionary format for CosmosDB"""
         data = self.model_dump()
-        if data.get('id') is None:
-            data.pop('id', None)  # Let CosmosDB generate the ID
         
         # Convert datetime objects to ISO strings
         for field in ['created_at', 'updated_at', 'completed_at', 'due_date']:

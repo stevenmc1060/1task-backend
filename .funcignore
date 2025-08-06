@@ -1,0 +1,29 @@
+# Test UI files - exclude from Azure Functions deployment
+test-ui.html
+serve_ui.py
+start_ui.py
+ui/
+test_*.py
+debug_*.py
+
+# Development files
+.env
+.env.template
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Git and IDE files
+.git/
+.github/
+.vscode/
+README.md
+
+# Backup files
+*.bak
+*.bak2
+*.bak3
+
+# Local settings
+local.settings.json
