@@ -1,0 +1,13 @@
+# Azure Functions runtime
+azure-functions
+
+# CosmosDB SDK
+azure-cosmos
+
+# Additional utilities
+python-dotenv
+pydantic
+
+# Uncomment to enable Azure Monitor OpenTelemetry
+# Ref: aka.ms/functions-azure-monitor-python 
+# azure-monitor-opentelemetry
