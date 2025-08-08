@@ -47,6 +47,12 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
+@app.route(route="health", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def health_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for health endpoint"""
+    return create_cors_response("", status_code=200)
+
+
 @app.route(route="tasks", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def get_tasks(req: func.HttpRequest) -> func.HttpResponse:
     """Get tasks for a user"""

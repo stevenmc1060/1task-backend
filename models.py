@@ -195,6 +195,7 @@ class Task(BaseDocument):
     habit_id: Optional[str] = Field(default=None, description="Parent habit ID")
     estimated_hours: Optional[float] = Field(default=None, description="Estimated hours to complete")
     actual_hours: Optional[float] = Field(default=None, description="Actual hours spent")
+    metadata: Optional[dict] = Field(default=None, description="Additional metadata for special item types")
     document_type: DocumentType = Field(default=DocumentType.TASK, description="Document type")
     
     def to_cosmos_dict(self) -> dict:
@@ -287,6 +288,7 @@ class CreateTaskRequest(BaseModel):
     weekly_goal_id: Optional[str] = None
     habit_id: Optional[str] = None
     estimated_hours: Optional[float] = None
+    metadata: Optional[dict] = None
     user_id: str
 
 
@@ -355,6 +357,7 @@ class UpdateTaskRequest(BaseModel):
     habit_id: Optional[str] = None
     estimated_hours: Optional[float] = None
     actual_hours: Optional[float] = None
+    metadata: Optional[dict] = None
 
 
 # Special Request Models
