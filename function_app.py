@@ -653,24 +653,60 @@ def create_habit(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="habits/{habit_id}", methods=["PUT"], auth_level=func.AuthLevel.ANONYMOUS)
 def update_habit(req: func.HttpRequest) -> func.HttpResponse:
     """Update a habit"""
+    logger.info('Update habit endpoint triggered.')
+    
     try:
         habit_id = req.route_params.get('habit_id')
         user_id = req.params.get('user_id')
+        
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        req_body = req.get_json()
-        update_request = UpdateHabitRequest(**req_body)
-        updates = {k: v for k, v in update_request.model_dump().items() if v is not None}
+        # Parse request body
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            return create_cors_response(
+                json.dumps({"error": "Invalid JSON in request body"}),
+                status_code=400,
+                mimetype="application/json"
+            )
         
+        # Validate request
+        try:
+            update_request = UpdateHabitRequest(**req_body)
+            updates = {k: v for k, v in update_request.model_dump().items() if v is not None}
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Validation error: {str(e)}"}),
+                status_code=400,
+                mimetype="application/json"
+            )
+        
+        # Update habit
+        updates = update_request.model_dump(exclude_unset=True)
         updated_habit = generic_repository.update_document(habit_id, user_id, updates, Habit)
-        if not updated_habit:
-            return create_cors_response(json.dumps({"error": "Habit not found"}), status_code=404)
         
-        return create_cors_response(json.dumps(updated_habit.model_dump(), default=str))
+        if not updated_habit:
+            return create_cors_response(
+                json.dumps({"error": "Habit not found"}),
+                status_code=404,
+                mimetype="application/json"
+            )
+        
+        return create_cors_response(
+            json.dumps(updated_habit.model_dump(), default=str),
+            status_code=200,
+            mimetype="application/json"
+        )
+        
     except Exception as e:
         logger.error(f"Error in update_habit: {e}")
-        return create_cors_response(json.dumps({"error": str(e)}), status_code=400)
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            mimetype="application/json"
+        )
 
 
 @app.route(route="habits/{habit_id}", methods=["DELETE"], auth_level=func.AuthLevel.ANONYMOUS)

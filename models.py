@@ -155,6 +155,7 @@ class Habit(BaseDocument):
     status: HabitStatus = Field(default=HabitStatus.ACTIVE, description="Habit status")
     frequency: HabitFrequency = Field(..., description="How often the habit should be performed")
     target_count: int = Field(default=1, description="Target count per frequency period")
+    current_count: int = Field(default=0, description="Completions in current period (e.g. week)")
     current_streak: int = Field(default=0, description="Current streak count")
     longest_streak: int = Field(default=0, description="Longest streak achieved")
     total_completions: int = Field(default=0, description="Total number of completions")
@@ -259,6 +260,7 @@ class CreateHabitRequest(BaseModel):
     description: Optional[str] = None
     frequency: HabitFrequency
     target_count: int = 1
+    current_count: int = 0
     reminder_time: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     user_id: str
@@ -328,6 +330,7 @@ class UpdateHabitRequest(BaseModel):
     status: Optional[HabitStatus] = None
     frequency: Optional[HabitFrequency] = None
     target_count: Optional[int] = None
+    current_count: Optional[int] = None
     reminder_time: Optional[str] = None
     tags: Optional[List[str]] = None
 
