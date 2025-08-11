@@ -19,18 +19,38 @@ app = func.FunctionApp()
 logger = logging.getLogger(__name__)
 
 
-def create_cors_response(body: str, status_code: int = 200, mimetype: str = "application/json") -> func.HttpResponse:
+def create_cors_response(body: str, status_code: int = 200, mimetype: str = "application/json", origin: str = None) -> func.HttpResponse:
     """Create HTTP response with CORS headers"""
+    
+    # Allowed origins for CORS
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net"
+    ]
+    
+    # Determine allowed origin
+    allowed_origin = "*"
+    if origin and origin in allowed_origins:
+        allowed_origin = origin
+    
     return func.HttpResponse(
         body,
         status_code=status_code,
         mimetype=mimetype,
         headers={
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": allowed_origin,
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization"
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
         }
     )
+
+
+def create_cors_response_from_request(req: func.HttpRequest, body: str, status_code: int = 200, mimetype: str = "application/json") -> func.HttpResponse:
+    """Create HTTP response with CORS headers, automatically extracting origin from request"""
+    origin = req.headers.get('Origin')
+    return create_cors_response(body, status_code, mimetype, origin)
 
 
 @app.route(route="health", auth_level=func.AuthLevel.ANONYMOUS)
@@ -38,7 +58,8 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     """Health check endpoint"""
     logger.info('Health check endpoint triggered.')
     
-    return create_cors_response(
+    return create_cors_response_from_request(
+        req,
         json.dumps({
             "status": "healthy",
             "timestamp": datetime.datetime.utcnow().isoformat(),
@@ -50,7 +71,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="health", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def health_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for health endpoint"""
-    return create_cors_response("", status_code=200)
+    return create_cors_response_from_request(req, "", status_code=200)
 
 
 @app.route(route="tasks", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -344,19 +365,19 @@ def get_overdue_tasks(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="tasks", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def tasks_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for tasks endpoints"""
-    return create_cors_response("", status_code=200)
+    return create_cors_response_from_request(req, "", status_code=200)
 
 
 @app.route(route="tasks/{task_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def task_by_id_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for task by ID endpoints"""
-    return create_cors_response("", status_code=200)
+    return create_cors_response_from_request(req, "", status_code=200)
 
 
 @app.route(route="tasks/overdue", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def overdue_tasks_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for overdue tasks endpoint"""
-    return create_cors_response("", status_code=200)
+    return create_cors_response_from_request(req, "", status_code=200)
 
 
 # =============================================================================
@@ -747,3 +768,15 @@ def delete_project(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logger.error(f"Error in delete_project: {e}")
         return create_cors_response(json.dumps({"error": str(e)}), status_code=500)
+
+
+@app.route(route="projects", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def projects_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for projects endpoints"""
+    return create_cors_response_from_request(req, "", status_code=200)
+
+
+@app.route(route="projects/{project_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def project_by_id_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for project by ID endpoints"""
+    return create_cors_response_from_request(req, "", status_code=200)

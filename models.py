@@ -351,6 +351,7 @@ class UpdateTaskRequest(BaseModel):
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
     due_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     tags: Optional[List[str]] = None
     project_id: Optional[str] = None
     weekly_goal_id: Optional[str] = None
@@ -358,6 +359,7 @@ class UpdateTaskRequest(BaseModel):
     estimated_hours: Optional[float] = None
     actual_hours: Optional[float] = None
     metadata: Optional[dict] = None
+    user_id: Optional[str] = None
 
 
 # Special Request Models

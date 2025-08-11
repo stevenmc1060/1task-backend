@@ -4,7 +4,7 @@ Generic repository for all document types in 1TaskAssistant application
 import logging
 import uuid
 from typing import List, Optional, Type, TypeVar
-from datetime import datetime
+from datetime import datetime, date
 from azure.cosmos import exceptions
 from cosmos_config import cosmos_manager
 from models import (
@@ -89,7 +89,44 @@ class GenericRepository:
             # Update fields
             for key, value in updates.items():
                 if value is not None:
-                    existing_item[key] = value
+                    # Handle datetime fields specially
+                    if key in ['completed_at', 'due_date', 'start_date', 'end_date', 'created_at', 'updated_at']:
+                        if isinstance(value, str):
+                            # Parse datetime string and convert to ISO format
+                            try:
+                                # Handle various datetime formats
+                                if value.endswith('Z'):
+                                    # Handle UTC timezone format
+                                    parsed_dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                                else:
+                                    parsed_dt = datetime.fromisoformat(value)
+                                existing_item[key] = parsed_dt.isoformat()
+                            except ValueError as e:
+                                logger.error(f"Error parsing datetime field {key} with value {value}: {e}")
+                                raise ValueError(f"Invalid datetime format for field {key}: {value}")
+                        elif isinstance(value, datetime):
+                            existing_item[key] = value.isoformat()
+                        else:
+                            existing_item[key] = value
+                    elif key in ['target_date', 'week_start_date']:
+                        # Handle date fields
+                        if isinstance(value, str):
+                            try:
+                                parsed_date = datetime.fromisoformat(value).date()
+                                existing_item[key] = parsed_date.isoformat()
+                            except ValueError as e:
+                                logger.error(f"Error parsing date field {key} with value {value}: {e}")
+                                raise ValueError(f"Invalid date format for field {key}: {value}")
+                        else:
+                            existing_item[key] = value
+                    else:
+                        # Handle other fields normally
+                        existing_item[key] = value
+                else:
+                    # Allow clearing certain fields explicitly by sending null
+                    # Currently supported: completed_at
+                    if key in ['completed_at'] and key in existing_item:
+                        del existing_item[key]
             
             # Update timestamp
             existing_item['updated_at'] = datetime.utcnow().isoformat()
