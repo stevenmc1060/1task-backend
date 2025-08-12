@@ -19,6 +19,17 @@ app = func.FunctionApp()
 logger = logging.getLogger(__name__)
 
 
+def serialize_datetimes(obj):
+    if isinstance(obj, dict):
+        return {k: serialize_datetimes(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_datetimes(i) for i in obj]
+    elif isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+    else:
+        return obj
+
+
 def create_cors_response(body: str, status_code: int = 200, mimetype: str = "application/json", origin: str = None) -> func.HttpResponse:
     """Create HTTP response with CORS headers"""
     
@@ -26,7 +37,8 @@ def create_cors_response(body: str, status_code: int = 200, mimetype: str = "app
     allowed_origins = [
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-        "https://polite-field-04b5c2a10.1.azurestaticapps.net"
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
     ]
     
     # Determine allowed origin
@@ -626,12 +638,45 @@ def get_habits(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        habits = generic_repository.get_documents_by_user_and_type(user_id, DocumentType.HABIT, Habit)
-        habits_data = [habit.model_dump() for habit in habits]
+        logger.info(f"[HABITS GET] Loading habits for user: {user_id}")
         
-        return create_cors_response(json.dumps(habits_data, default=str))
+        try:
+            # Try to get habits using the generic repository
+            habits = generic_repository.get_documents_by_user_and_type(user_id, DocumentType.HABIT, Habit)
+            logger.info(f"[HABITS GET] Retrieved {len(habits)} habit objects")
+            
+            # Convert to dict format
+            habits_data = []
+            for habit in habits:
+                try:
+                    habit_dict = habit.model_dump()
+                    habits_data.append(habit_dict)
+                except Exception as e:
+                    logger.error(f"[HABITS GET] Error converting habit to dict: {e}")
+                    continue
+            
+            logger.info(f"[HABITS GET] Successfully converted {len(habits_data)} habits to dict")
+            
+            # Serialize datetimes
+            serialized_data = serialize_datetimes(habits_data)
+            logger.info(f"[HABITS GET] Successfully serialized habits data")
+            
+            return create_cors_response(json.dumps(serialized_data))
+            
+        except Exception as repo_error:
+            logger.error(f"[HABITS GET] Repository error: {repo_error}")
+            logger.error(f"[HABITS GET] Repository error details: {str(repo_error)}")
+            import traceback
+            logger.error(f"[HABITS GET] Repository traceback: {traceback.format_exc()}")
+            
+            # Return empty list if no habits found or error occurred
+            return create_cors_response(json.dumps([]))
+            
     except Exception as e:
-        logger.error(f"Error in get_habits: {e}")
+        logger.error(f"[HABITS GET] General error: {e}")
+        logger.error(f"[HABITS GET] Error details: {str(e)}")
+        import traceback
+        logger.error(f"[HABITS GET] Traceback: {traceback.format_exc()}")
         return create_cors_response(json.dumps({"error": "Internal server error"}), status_code=500)
 
 
@@ -640,14 +685,65 @@ def create_habit(req: func.HttpRequest) -> func.HttpResponse:
     """Create a new habit"""
     try:
         req_body = req.get_json()
-        create_request = CreateHabitRequest(**req_body)
-        habit = Habit(**create_request.model_dump())
-        created_habit = generic_repository.create_document(habit)
+        logger.info(f"[HABIT CREATE] Incoming payload: {json.dumps(req_body)}")
         
-        return create_cors_response(json.dumps(created_habit.model_dump(), default=str), status_code=201)
+        # Ensure metadata.type is always set to 'habit'
+        if 'metadata' not in req_body or not isinstance(req_body['metadata'], dict):
+            req_body['metadata'] = {'type': 'habit'}
+        else:
+            req_body['metadata']['type'] = 'habit'
+        
+        # Create request object with validation
+        try:
+            create_request = CreateHabitRequest(**req_body)
+            logger.info(f"[HABIT CREATE] CreateHabitRequest validated successfully")
+        except Exception as validation_error:
+            logger.error(f"[HABIT CREATE] Validation error: {validation_error}")
+            return create_cors_response(json.dumps({"error": f"Validation error: {str(validation_error)}"}), status_code=400)
+        
+        # Create Habit object
+        try:
+            habit_data = create_request.model_dump()
+            logger.info(f"[HABIT CREATE] Raw habit_data from request: {habit_data}")
+            
+            # CRITICAL FIX: Explicitly ensure document_type is set to HABIT
+            habit_data['document_type'] = DocumentType.HABIT
+            logger.info(f"[HABIT CREATE] habit_data after setting document_type: {habit_data}")
+            
+            habit = Habit(**habit_data)
+            logger.info(f"[HABIT CREATE] Habit object created: {habit.model_dump()}")
+            logger.info(f"[HABIT CREATE] Habit.document_type value: {habit.document_type}")
+            logger.info(f"[HABIT CREATE] Habit.document_type type: {type(habit.document_type)}")
+        except Exception as habit_error:
+            logger.error(f"[HABIT CREATE] Error creating Habit object: {habit_error}")
+            return create_cors_response(json.dumps({"error": f"Habit creation error: {str(habit_error)}"}), status_code=400)
+        
+        # Save to database
+        try:
+            created_habit = generic_repository.create_document(habit)
+            logger.info(f"[HABIT CREATE] Saved document: {created_habit}")
+        except Exception as db_error:
+            logger.error(f"[HABIT CREATE] Database error: {db_error}")
+            return create_cors_response(json.dumps({"error": f"Database error: {str(db_error)}"}), status_code=500)
+        
+        # Always convert to dict and serialize datetimes
+        if hasattr(created_habit, "model_dump"):
+            created_habit_dict = created_habit.model_dump()
+        elif isinstance(created_habit, dict):
+            created_habit_dict = created_habit
+        else:
+            created_habit_dict = dict(created_habit)
+        
+        serialized = serialize_datetimes(created_habit_dict)
+        logger.info(f"[HABIT CREATE] Returning serialized habit: {serialized}")
+        
+        return create_cors_response(json.dumps(serialized), status_code=201)
+        
     except Exception as e:
-        logger.error(f"Error in create_habit: {e}")
-        return create_cors_response(json.dumps({"error": str(e)}), status_code=400)
+        logger.error(f"[HABIT CREATE] Unexpected error: {e}")
+        import traceback
+        logger.error(f"[HABIT CREATE] Traceback: {traceback.format_exc()}")
+        return create_cors_response(json.dumps({"error": str(e)}), status_code=500)
 
 
 @app.route(route="habits/{habit_id}", methods=["PUT"], auth_level=func.AuthLevel.ANONYMOUS)
@@ -665,12 +761,19 @@ def update_habit(req: func.HttpRequest) -> func.HttpResponse:
         # Parse request body
         try:
             req_body = req.get_json()
+            logger.info(f"[HABIT UPDATE] Incoming payload: {json.dumps(req_body)}")
         except ValueError:
             return create_cors_response(
                 json.dumps({"error": "Invalid JSON in request body"}),
                 status_code=400,
                 mimetype="application/json"
             )
+        
+        # Ensure metadata.type is always set to 'habit' on update
+        if 'metadata' not in req_body or not isinstance(req_body['metadata'], dict):
+            req_body['metadata'] = {'type': 'habit'}
+        else:
+            req_body['metadata']['type'] = 'habit'
         
         # Validate request
         try:
@@ -683,10 +786,25 @@ def update_habit(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
+        # Ensure document_type is always set to DocumentType.HABIT on update
+        updates['document_type'] = DocumentType.HABIT
+    
         # Update habit
         updates = update_request.model_dump(exclude_unset=True)
+        updates['document_type'] = DocumentType.HABIT  # Ensure this is always set
         updated_habit = generic_repository.update_document(habit_id, user_id, updates, Habit)
         
+        # Log the saved document with proper datetime serialization
+        if updated_habit:
+            if hasattr(updated_habit, "model_dump"):
+                log_dict = updated_habit.model_dump()
+            else:
+                log_dict = dict(updated_habit)
+            serialized_log = serialize_datetimes(log_dict)
+            logger.info(f"[HABIT UPDATE] Saved document: {json.dumps(serialized_log)}")
+        else:
+            logger.info("[HABIT UPDATE] Saved document: None")
+            
         if not updated_habit:
             return create_cors_response(
                 json.dumps({"error": "Habit not found"}),
@@ -694,8 +812,24 @@ def update_habit(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
+        # Ensure metadata.type is always set to 'habit' in the returned object
+        if hasattr(updated_habit, 'metadata') and isinstance(updated_habit.metadata, dict):
+            updated_habit.metadata['type'] = 'habit'
+        elif hasattr(updated_habit, 'metadata') and updated_habit.metadata is None:
+            updated_habit.metadata = {'type': 'habit'}
+
+        # Log the full outgoing response for debugging
+        if hasattr(updated_habit, "model_dump"):
+            updated_habit_dict = updated_habit.model_dump()
+        elif isinstance(updated_habit, dict):
+            updated_habit_dict = updated_habit
+        else:
+            updated_habit_dict = dict(updated_habit)
+        serialized = serialize_datetimes(updated_habit_dict)
+        logger.info(f"[HABIT UPDATE RESPONSE] Returning: {json.dumps(serialized)}")
+
         return create_cors_response(
-            json.dumps(updated_habit.model_dump(), default=str),
+            json.dumps(serialized),
             status_code=200,
             mimetype="application/json"
         )
@@ -816,3 +950,57 @@ def projects_options(req: func.HttpRequest) -> func.HttpResponse:
 def project_by_id_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for project by ID endpoints"""
     return create_cors_response_from_request(req, "", status_code=200)
+
+
+@app.route(route="habits", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def habits_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for habits endpoint"""
+    origin = req.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080", 
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
+    ]
+    
+    allowed_origin = "*"
+    if origin and origin in allowed_origins:
+        allowed_origin = origin
+    
+    return func.HttpResponse(
+        "",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
+        }
+    )
+
+
+@app.route(route="habits/{habit_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def habit_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for specific habit endpoint"""
+    origin = req.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
+    ]
+    
+    allowed_origin = "*"
+    if origin and origin in allowed_origins:
+        allowed_origin = origin
+    
+    return func.HttpResponse(
+        "",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
+        }
+    )

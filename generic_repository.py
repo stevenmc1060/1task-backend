@@ -26,35 +26,66 @@ class GenericRepository:
     def create_document(self, document: T) -> T:
         """Create a new document"""
         try:
+            logger.info(f"[REPO CREATE] Starting create_document for type: {type(document).__name__}")
+            logger.info(f"[REPO CREATE] Document data: {document.model_dump()}")
+            
             # Generate ID if not provided
             if not document.id:
                 document.id = str(uuid.uuid4())
+                logger.info(f"[REPO CREATE] Generated new ID: {document.id}")
+            else:
+                logger.info(f"[REPO CREATE] Using existing ID: {document.id}")
             
             # Set timestamps
             document.created_at = datetime.utcnow()
             document.updated_at = datetime.utcnow()
+            logger.info(f"[REPO CREATE] Set timestamps: created={document.created_at}, updated={document.updated_at}")
             
             # Convert to dict for storage
             doc_dict = document.to_cosmos_dict()
+            logger.info(f"[REPO CREATE] Cosmos dict: {doc_dict}")
+            logger.info(f"[REPO CREATE] Document type in dict: {doc_dict.get('document_type')}")
+            logger.info(f"[REPO CREATE] User ID in dict: {doc_dict.get('user_id')}")
             
             # Create in Cosmos DB
+            logger.info(f"[REPO CREATE] About to call container.create_item")
             created_item = self.container.create_item(body=doc_dict)
+            logger.info(f"[REPO CREATE] Cosmos DB create_item successful")
+            logger.info(f"[REPO CREATE] Created item: {created_item}")
             
             # Convert back to model
-            return type(document).from_cosmos_dict(created_item)
+            result = type(document).from_cosmos_dict(created_item)
+            logger.info(f"[REPO CREATE] Successfully converted back to model: {result.model_dump()}")
+            
+            return result
             
         except exceptions.CosmosHttpResponseError as e:
-            logger.error(f"Error creating document: {e}")
+            logger.error(f"[REPO CREATE] CosmosHttpResponseError: {e}")
+            logger.error(f"[REPO CREATE] Error details: status_code={e.status_code}, message={e.message}")
+            raise
+        except Exception as e:
+            logger.error(f"[REPO CREATE] Unexpected error: {e}")
+            import traceback
+            logger.error(f"[REPO CREATE] Traceback: {traceback.format_exc()}")
             raise
     
     def get_documents_by_user_and_type(self, user_id: str, document_type: DocumentType, model_class: Type[T]) -> List[T]:
         """Get all documents of a specific type for a user"""
         try:
+            logger.info(f"[REPO GET] Starting get_documents_by_user_and_type")
+            logger.info(f"[REPO GET] user_id: {user_id}")
+            logger.info(f"[REPO GET] document_type: {document_type}")
+            logger.info(f"[REPO GET] document_type.value: {document_type.value}")
+            logger.info(f"[REPO GET] model_class: {model_class.__name__}")
+            
             query = "SELECT * FROM c WHERE c.user_id = @user_id AND c.document_type = @document_type"
             parameters = [
                 {"name": "@user_id", "value": user_id},
                 {"name": "@document_type", "value": document_type.value}
             ]
+            
+            logger.info(f"[REPO GET] Query: {query}")
+            logger.info(f"[REPO GET] Parameters: {parameters}")
             
             items = list(self.container.query_items(
                 query=query,
@@ -62,10 +93,23 @@ class GenericRepository:
                 partition_key=user_id
             ))
             
-            return [model_class.from_cosmos_dict(item) for item in items]
+            logger.info(f"[REPO GET] Raw query returned {len(items)} items")
+            for i, item in enumerate(items):
+                logger.info(f"[REPO GET] Item {i}: {item}")
+            
+            result = [model_class.from_cosmos_dict(item) for item in items]
+            logger.info(f"[REPO GET] Successfully converted {len(result)} items to model objects")
+            
+            return result
             
         except exceptions.CosmosHttpResponseError as e:
-            logger.error(f"Error querying documents: {e}")
+            logger.error(f"[REPO GET] CosmosHttpResponseError: {e}")
+            logger.error(f"[REPO GET] Error details: status_code={e.status_code}, message={e.message}")
+            raise
+        except Exception as e:
+            logger.error(f"[REPO GET] Unexpected error: {e}")
+            import traceback
+            logger.error(f"[REPO GET] Traceback: {traceback.format_exc()}")
             raise
     
     def get_document_by_id(self, document_id: str, user_id: str, model_class: Type[T]) -> Optional[T]:

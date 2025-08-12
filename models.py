@@ -79,12 +79,14 @@ class BaseDocument(BaseModel):
         """Convert to dictionary format for CosmosDB"""
         data = self.model_dump()
         
-        # Convert datetime and date objects to ISO strings
+        # Convert datetime, date, and enum objects to proper formats
         for field_name, field_value in data.items():
             if isinstance(field_value, datetime):
                 data[field_name] = field_value.isoformat()
             elif isinstance(field_value, date):
                 data[field_name] = field_value.isoformat()
+            elif hasattr(field_value, 'value'):  # Handle enum objects
+                data[field_name] = field_value.value
         
         return data
     
@@ -92,16 +94,26 @@ class BaseDocument(BaseModel):
     def from_cosmos_dict(cls, data: dict) -> 'BaseDocument':
         """Create document instance from CosmosDB document"""
         # Convert ISO strings back to datetime/date objects
-        datetime_fields = ['created_at', 'updated_at', 'completed_at', 'due_date', 'start_date', 'end_date']
+        datetime_fields = ['created_at', 'updated_at', 'completed_at', 'due_date', 'start_date', 'end_date', 'last_completed_at']
         date_fields = ['target_date', 'week_start_date']
         
         for field in datetime_fields:
             if data.get(field) and isinstance(data[field], str):
-                data[field] = datetime.fromisoformat(data[field])
+                try:
+                    data[field] = datetime.fromisoformat(data[field])
+                except ValueError as e:
+                    # Handle any datetime parsing errors
+                    print(f"Error parsing datetime field {field}: {e}")
+                    data[field] = None
         
         for field in date_fields:
             if data.get(field) and isinstance(data[field], str):
-                data[field] = date.fromisoformat(data[field])
+                try:
+                    data[field] = date.fromisoformat(data[field])
+                except ValueError as e:
+                    # Handle any date parsing errors
+                    print(f"Error parsing date field {field}: {e}")
+                    data[field] = None
         
         return cls(**data)
 
@@ -259,11 +271,20 @@ class CreateHabitRequest(BaseModel):
     title: str
     description: Optional[str] = None
     frequency: HabitFrequency
-    target_count: int = 1
+    target_count: Union[int, str] = 1  # Accept both int and string, convert to int
     current_count: int = 0
+    status: HabitStatus = HabitStatus.ACTIVE
     reminder_time: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     user_id: str
+    # Allow extra fields that frontend might send
+    itemType: Optional[str] = None
+    metadata: Optional[dict] = None
+    
+    def model_post_init(self, __context):
+        """Convert string target_count to int"""
+        if isinstance(self.target_count, str):
+            self.target_count = int(self.target_count)
 
 
 class CreateProjectRequest(BaseModel):
