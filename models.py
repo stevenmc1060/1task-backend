@@ -161,11 +161,11 @@ class WeeklyGoal(BaseDocument):
 
 
 class Habit(BaseDocument):
-    """Habit model"""
+    """Habit model - Updated to handle legacy data structure"""
     title: str = Field(..., description="Habit title")
     description: Optional[str] = Field(default=None, description="Habit description")
     status: HabitStatus = Field(default=HabitStatus.ACTIVE, description="Habit status")
-    frequency: HabitFrequency = Field(..., description="How often the habit should be performed")
+    frequency: Optional[HabitFrequency] = Field(default=HabitFrequency.DAILY, description="How often the habit should be performed")
     target_count: int = Field(default=1, description="Target count per frequency period")
     current_count: int = Field(default=0, description="Completions in current period (e.g. week)")
     current_streak: int = Field(default=0, description="Current streak count")
@@ -175,6 +175,48 @@ class Habit(BaseDocument):
     tags: List[str] = Field(default_factory=list, description="Habit tags")
     last_completed_at: Optional[datetime] = Field(default=None, description="Last completion timestamp")
     document_type: DocumentType = Field(default=DocumentType.HABIT, description="Document type")
+    
+    # Legacy fields that might exist in stored habits (make them optional)
+    priority: Optional[str] = Field(default=None, description="Legacy priority field")
+    due_date: Optional[datetime] = Field(default=None, description="Legacy due_date field")
+    completed_at: Optional[datetime] = Field(default=None, description="Legacy completed_at field")
+    project_id: Optional[str] = Field(default=None, description="Legacy project_id field")
+    weekly_goal_id: Optional[str] = Field(default=None, description="Legacy weekly_goal_id field")
+    habit_id: Optional[str] = Field(default=None, description="Legacy habit_id field")
+    estimated_hours: Optional[float] = Field(default=None, description="Legacy estimated_hours field")
+    actual_hours: Optional[float] = Field(default=None, description="Legacy actual_hours field")
+    metadata: Optional[dict] = Field(default_factory=dict, description="Legacy metadata field")
+    
+    @classmethod
+    def from_cosmos_dict(cls, data: dict) -> 'Habit':
+        """Create Habit from Cosmos DB document with data transformation for legacy format"""
+        # Handle legacy data where habit-specific fields are in metadata
+        if 'metadata' in data and isinstance(data['metadata'], dict):
+            metadata = data['metadata']
+            
+            # Extract frequency from metadata if it exists there but not at top level
+            if 'frequency' not in data and 'frequency' in metadata:
+                data['frequency'] = metadata['frequency']
+            
+            # Extract target_count from metadata if it exists there but not at top level
+            if 'target_count' not in data and 'target_count' in metadata:
+                try:
+                    data['target_count'] = int(metadata['target_count'])
+                except (ValueError, TypeError):
+                    data['target_count'] = 1
+            
+            # Extract reminder_time from metadata if it exists there
+            if 'reminder_time' not in data and 'reminder_time' in metadata:
+                data['reminder_time'] = metadata['reminder_time']
+        
+        # Ensure frequency has a default value if still missing
+        if 'frequency' not in data or data['frequency'] is None:
+            data['frequency'] = HabitFrequency.DAILY.value
+        
+        # Clean up Cosmos DB internal fields
+        data = {k: v for k, v in data.items() if not k.startswith('_')}
+        
+        return cls(**data)
 
 
 class Project(BaseDocument):
