@@ -19,9 +19,9 @@ class TaskRepository:
         self.container = None
     
     def _get_container(self):
-        """Get CosmosDB container instance"""
+        """Get CosmosDB tasks container instance"""
         if not self.container:
-            self.container = cosmos_manager.get_container()
+            self.container = cosmos_manager.get_tasks_container()
         return self.container
     
     def create_task(self, task: Task) -> Task:

@@ -9,10 +9,14 @@ from models import (
     WeeklyGoal, CreateWeeklyGoalRequest, UpdateWeeklyGoalRequest,
     Habit, CreateHabitRequest, UpdateHabitRequest,
     Project, CreateProjectRequest, UpdateProjectRequest,
+    UserProfile, CreateUserProfileRequest, UpdateUserProfileRequest,
+    OnboardingStatus, OnboardingStep,
+    ChatSession, ChatMessage, ChatMessageRole,
     DocumentType
 )
 from task_repository import task_repository
 from generic_repository import generic_repository
+from user_profile_repository import user_profile_repo, onboarding_repo, chat_session_repo
 
 app = func.FunctionApp()
 
@@ -661,7 +665,10 @@ def get_habits(req: func.HttpRequest) -> func.HttpResponse:
             serialized_data = serialize_datetimes(habits_data)
             logger.info(f"[HABITS GET] Successfully serialized habits data")
             
-            return create_cors_response(json.dumps(serialized_data))
+            return create_cors_response(
+                json.dumps(serialized_data),
+                origin=req.headers.get('Origin')
+            )
             
         except Exception as repo_error:
             logger.error(f"[HABITS GET] Repository error: {repo_error}")
@@ -1001,6 +1008,500 @@ def habit_options(req: func.HttpRequest) -> func.HttpResponse:
             "Access-Control-Allow-Origin": allowed_origin,
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
+        }
+    )
+
+
+# =====================
+# User Profile API Endpoints
+# =====================
+
+@app.route(route="profiles", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def create_profile(req: func.HttpRequest) -> func.HttpResponse:
+    """Create a new user profile"""
+    try:
+        # Get user_id from header or request
+        user_id = req.headers.get('X-User-Id')
+        if not user_id:
+            body = req.get_json()
+            user_id = body.get('user_id') if body else None
+            
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            create_request = CreateUserProfileRequest(**request_data)
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Create profile using repository
+        profile = user_profile_repo.create_user_profile(user_id, create_request)
+        
+        # Also create initial onboarding status
+        onboarding_repo.create_onboarding_status(user_id)
+        
+        # Convert to dict and serialize
+        profile_dict = profile.to_cosmos_dict()
+        serialized_profile = serialize_datetimes(profile_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_profile),
+            status_code=201,
+            origin=req.headers.get('Origin')
+        )
+        
+    except ValueError as e:
+        if "already exists" in str(e):
+            return create_cors_response(
+                json.dumps({"error": str(e)}),
+                status_code=409,
+                origin=req.headers.get('Origin')
+            )
+        return create_cors_response(
+            json.dumps({"error": str(e)}),
+            status_code=400,
+            origin=req.headers.get('Origin')
+        )
+    except Exception as e:
+        logging.error(f"Error creating profile: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="profiles/{user_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_profile(req: func.HttpRequest) -> func.HttpResponse:
+    """Get user profile by user_id"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Get profile using repository
+        profile = user_profile_repo.get_user_profile(user_id)
+        
+        if not profile:
+            return create_cors_response(
+                json.dumps({"error": "Profile not found"}),
+                status_code=404,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Convert to dict and serialize
+        profile_dict = profile.to_cosmos_dict()
+        serialized_profile = serialize_datetimes(profile_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_profile),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error getting profile: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="profiles/{user_id}", methods=["PUT"], auth_level=func.AuthLevel.ANONYMOUS)
+def update_profile(req: func.HttpRequest) -> func.HttpResponse:
+    """Update user profile"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            update_request = UpdateUserProfileRequest(**request_data)
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Update profile using repository
+        profile = user_profile_repo.update_user_profile(user_id, update_request)
+        
+        if not profile:
+            return create_cors_response(
+                json.dumps({"error": "Profile not found"}),
+                status_code=404,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Convert to dict and serialize
+        profile_dict = profile.to_cosmos_dict()
+        serialized_profile = serialize_datetimes(profile_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_profile),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error updating profile: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="profiles/{user_id}", methods=["DELETE"], auth_level=func.AuthLevel.ANONYMOUS)
+def delete_profile(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete user profile and all associated data"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Delete profile using repository (also deletes onboarding and chat data)
+        success = user_profile_repo.delete_user_profile(user_id)
+        
+        if not success:
+            return create_cors_response(
+                json.dumps({"error": "Profile not found"}),
+                status_code=404,
+                origin=req.headers.get('Origin')
+            )
+        
+        return create_cors_response(
+            json.dumps({"message": "Profile and associated data deleted successfully"}),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error deleting profile: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+# =====================
+# Onboarding API Endpoints
+# =====================
+
+@app.route(route="onboarding/{user_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_onboarding_status(req: func.HttpRequest) -> func.HttpResponse:
+    """Get onboarding status for user"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Get onboarding status using repository
+        onboarding = onboarding_repo.get_onboarding_status(user_id)
+        
+        if not onboarding:
+            # Create initial onboarding status if it doesn't exist
+            onboarding = onboarding_repo.create_onboarding_status(user_id)
+        
+        # Convert to dict and serialize
+        onboarding_dict = onboarding.to_cosmos_dict()
+        serialized_onboarding = serialize_datetimes(onboarding_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_onboarding),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error getting onboarding status: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="onboarding/{user_id}/step", methods=["PUT"], auth_level=func.AuthLevel.ANONYMOUS)
+def update_onboarding_step(req: func.HttpRequest) -> func.HttpResponse:
+    """Update onboarding step"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            step = OnboardingStep(request_data.get('step'))
+            interview_data = request_data.get('interview_data', {})
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Update onboarding step using repository
+        onboarding = onboarding_repo.update_onboarding_step(user_id, step, interview_data)
+        
+        if not onboarding:
+            return create_cors_response(
+                json.dumps({"error": "Failed to update onboarding"}),
+                status_code=500,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Convert to dict and serialize
+        onboarding_dict = onboarding.to_cosmos_dict()
+        serialized_onboarding = serialize_datetimes(onboarding_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_onboarding),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error updating onboarding step: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+# =====================
+# Chat Session API Endpoints
+# =====================
+
+@app.route(route="chat/{user_id}/sessions", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_chat_sessions(req: func.HttpRequest) -> func.HttpResponse:
+    """Get recent chat sessions for user"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Get limit from query params (default 5)
+        limit = int(req.params.get('limit', '5'))
+        
+        # Get chat sessions using repository
+        sessions = chat_session_repo.get_recent_chat_sessions(user_id, limit)
+        
+        # Convert to dict and serialize
+        sessions_data = []
+        for session in sessions:
+            session_dict = session.to_cosmos_dict()
+            serialized_session = serialize_datetimes(session_dict)
+            sessions_data.append(serialized_session)
+        
+        return create_cors_response(
+            json.dumps(sessions_data),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error getting chat sessions: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="chat/{user_id}/sessions", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def create_chat_session(req: func.HttpRequest) -> func.HttpResponse:
+    """Create a new chat session"""
+    try:
+        user_id = req.route_params.get('user_id')
+        if not user_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id is required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            title = request_data.get('title', f"Chat {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')}")
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Create chat session using repository
+        session = chat_session_repo.create_chat_session(user_id, title)
+        
+        # Convert to dict and serialize
+        session_dict = session.to_cosmos_dict()
+        serialized_session = serialize_datetimes(session_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_session),
+            status_code=201,
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error creating chat session: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="chat/{user_id}/sessions/{session_id}/messages", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def add_chat_message(req: func.HttpRequest) -> func.HttpResponse:
+    """Add a message to a chat session"""
+    try:
+        user_id = req.route_params.get('user_id')
+        session_id = req.route_params.get('session_id')
+        
+        if not user_id or not session_id:
+            return create_cors_response(
+                json.dumps({"error": "user_id and session_id are required"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            role = ChatMessageRole(request_data.get('role'))
+            content = request_data.get('content')
+            
+            if not content:
+                raise ValueError("Message content is required")
+                
+            message = ChatMessage(role=role, content=content)
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({"error": f"Invalid message data: {str(e)}"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Add message to session using repository
+        session = chat_session_repo.add_message_to_session(user_id, session_id, message)
+        
+        if not session:
+            return create_cors_response(
+                json.dumps({"error": "Session not found"}),
+                status_code=404,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Convert to dict and serialize
+        session_dict = session.to_cosmos_dict()
+        serialized_session = serialize_datetimes(session_dict)
+        
+        return create_cors_response(
+            json.dumps(serialized_session),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logging.error(f"Error adding chat message: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Internal server error"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+# =====================
+# CORS Options Endpoints for User Profile APIs
+# =====================
+
+@app.route(route="profiles", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def profiles_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for profiles endpoint"""
+    origin = req.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
+    ]
+    
+    allowed_origin = "*"
+    if origin and origin in allowed_origins:
+        allowed_origin = origin
+    
+    return func.HttpResponse(
+        "",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-User-Id",
+            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
+        }
+    )
+
+
+@app.route(route="profiles/{user_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)  
+def profile_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for specific profile endpoint"""
+    origin = req.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
+    ]
+    
+    allowed_origin = "*"
+    if origin and origin in allowed_origins:
+        allowed_origin = origin
+    
+    return func.HttpResponse(
+        "",
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-User-Id",
             "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
         }
     )

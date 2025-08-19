@@ -21,7 +21,8 @@ class CosmosDBConfig:
         self.endpoint = os.getenv('COSMOS_ENDPOINT')
         self.key = os.getenv('COSMOS_KEY')
         self.database_name = os.getenv('COSMOS_DATABASE_NAME', '1task-db')
-        self.container_name = os.getenv('COSMOS_CONTAINER_NAME', 'tasks')
+        self.tasks_container_name = os.getenv('COSMOS_CONTAINER_NAME', 'tasks')
+        self.profiles_container_name = os.getenv('COSMOS_PROFILES_CONTAINER_NAME', 'user-profiles')
         
         if not self.endpoint or not self.key:
             raise ValueError("COSMOS_ENDPOINT and COSMOS_KEY environment variables must be set")
@@ -34,10 +35,11 @@ class CosmosDBManager:
         self.config = CosmosDBConfig()
         self.client: Optional[CosmosClient] = None
         self.database: Optional[DatabaseProxy] = None
-        self.container: Optional[ContainerProxy] = None
+        self.tasks_container: Optional[ContainerProxy] = None
+        self.profiles_container: Optional[ContainerProxy] = None
         
     def initialize(self):
-        """Initialize CosmosDB client, database, and container"""
+        """Initialize CosmosDB client, database, and containers"""
         try:
             # Create CosmosDB client
             self.client = CosmosClient(self.config.endpoint, self.config.key)
@@ -47,9 +49,12 @@ class CosmosDBManager:
             self.database = self._create_database_if_not_exists()
             logger.info(f"Database '{self.config.database_name}' ready")
             
-            # Create or get container
-            self.container = self._create_container_if_not_exists()
-            logger.info(f"Container '{self.config.container_name}' ready")
+            # Create or get containers
+            self.tasks_container = self._create_tasks_container_if_not_exists()
+            logger.info(f"Tasks container '{self.config.tasks_container_name}' ready")
+            
+            self.profiles_container = self._create_profiles_container_if_not_exists()
+            logger.info(f"Profiles container '{self.config.profiles_container_name}' ready")
             
         except Exception as e:
             logger.error(f"Failed to initialize CosmosDB: {e}")
@@ -66,26 +71,45 @@ class CosmosDBManager:
         
         return database
     
-    def _create_container_if_not_exists(self) -> ContainerProxy:
-        """Create container if it doesn't exist"""
+    def _create_tasks_container_if_not_exists(self) -> ContainerProxy:
+        """Create tasks container if it doesn't exist"""
         try:
-            # No throughput setting for serverless accounts
             container = self.database.create_container(
-                id=self.config.container_name,
+                id=self.config.tasks_container_name,
                 partition_key={'paths': ['/user_id'], 'kind': 'Hash'}
             )
-            logger.info(f"Created container: {self.config.container_name}")
+            logger.info(f"Created tasks container: {self.config.tasks_container_name}")
         except CosmosResourceExistsError:
-            container = self.database.get_container_client(self.config.container_name)
-            logger.info(f"Using existing container: {self.config.container_name}")
+            container = self.database.get_container_client(self.config.tasks_container_name)
+            logger.info(f"Using existing tasks container: {self.config.tasks_container_name}")
         
         return container
     
-    def get_container(self) -> ContainerProxy:
-        """Get the container instance"""
-        if not self.container:
+    def _create_profiles_container_if_not_exists(self) -> ContainerProxy:
+        """Create user profiles container if it doesn't exist"""
+        try:
+            container = self.database.create_container(
+                id=self.config.profiles_container_name,
+                partition_key={'paths': ['/user_id'], 'kind': 'Hash'}
+            )
+            logger.info(f"Created profiles container: {self.config.profiles_container_name}")
+        except CosmosResourceExistsError:
+            container = self.database.get_container_client(self.config.profiles_container_name)
+            logger.info(f"Using existing profiles container: {self.config.profiles_container_name}")
+        
+        return container
+    
+    def get_tasks_container(self) -> ContainerProxy:
+        """Get the tasks container instance"""
+        if not self.tasks_container:
             self.initialize()
-        return self.container
+        return self.tasks_container
+    
+    def get_profiles_container(self) -> ContainerProxy:
+        """Get the profiles container instance"""
+        if not self.profiles_container:
+            self.initialize()
+        return self.profiles_container
 
 
 # Global instance

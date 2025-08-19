@@ -21,7 +21,17 @@ class GenericRepository:
     """Generic repository for all document types"""
     
     def __init__(self):
-        self.container = cosmos_manager.get_container()
+        self.cosmos_manager = cosmos_manager
+    
+    def _get_container(self, document_type):
+        """Get the appropriate container based on document type"""
+        # Import here to avoid circular imports
+        from models import UserProfile, OnboardingStatus, ChatSession
+        
+        if document_type in [UserProfile, OnboardingStatus, ChatSession]:
+            return self.cosmos_manager.get_profiles_container()
+        else:
+            return self.cosmos_manager.get_tasks_container()
     
     def create_document(self, document: T) -> T:
         """Create a new document"""
@@ -48,8 +58,9 @@ class GenericRepository:
             logger.info(f"[REPO CREATE] User ID in dict: {doc_dict.get('user_id')}")
             
             # Create in Cosmos DB
+            container = self._get_container(type(document))
             logger.info(f"[REPO CREATE] About to call container.create_item")
-            created_item = self.container.create_item(body=doc_dict)
+            created_item = container.create_item(body=doc_dict)
             logger.info(f"[REPO CREATE] Cosmos DB create_item successful")
             logger.info(f"[REPO CREATE] Created item: {created_item}")
             
@@ -87,10 +98,11 @@ class GenericRepository:
             logger.info(f"[REPO GET] Query: {query}")
             logger.info(f"[REPO GET] Parameters: {parameters}")
             
-            items = list(self.container.query_items(
+            container = self._get_container(model_class)
+            items = list(container.query_items(
                 query=query,
                 parameters=parameters,
-                partition_key=user_id
+                enable_cross_partition_query=True  # Use cross-partition query instead of specific partition
             ))
             
             logger.info(f"[REPO GET] Raw query returned {len(items)} items")
@@ -115,7 +127,8 @@ class GenericRepository:
     def get_document_by_id(self, document_id: str, user_id: str, model_class: Type[T]) -> Optional[T]:
         """Get a specific document by ID"""
         try:
-            item = self.container.read_item(item=document_id, partition_key=user_id)
+            container = self._get_container(model_class)
+            item = container.read_item(item=document_id, partition_key=user_id)
             return model_class.from_cosmos_dict(item)
             
         except exceptions.CosmosResourceNotFoundError:
@@ -128,7 +141,8 @@ class GenericRepository:
         """Update a document"""
         try:
             # First, get the existing document
-            existing_item = self.container.read_item(item=document_id, partition_key=user_id)
+            container = self._get_container(model_class)
+            existing_item = container.read_item(item=document_id, partition_key=user_id)
             
             # Update fields
             for key, value in updates.items():
@@ -176,7 +190,7 @@ class GenericRepository:
             existing_item['updated_at'] = datetime.utcnow().isoformat()
             
             # Save to Cosmos DB
-            updated_item = self.container.replace_item(item=document_id, body=existing_item)
+            updated_item = container.replace_item(item=document_id, body=existing_item)
             
             # Convert back to model
             return model_class.from_cosmos_dict(updated_item)
@@ -187,10 +201,11 @@ class GenericRepository:
             logger.error(f"Error updating document: {e}")
             raise
     
-    def delete_document(self, document_id: str, user_id: str) -> bool:
+    def delete_document(self, document_id: str, user_id: str, model_class: Type[T]) -> bool:
         """Delete a document"""
         try:
-            self.container.delete_item(item=document_id, partition_key=user_id)
+            container = self._get_container(model_class)
+            container.delete_item(item=document_id, partition_key=user_id)
             return True
             
         except exceptions.CosmosResourceNotFoundError:

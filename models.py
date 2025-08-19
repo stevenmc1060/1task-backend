@@ -1,6 +1,6 @@
+"""Data models for 1TaskAssistant application
 """
-Data models for 1TaskAssistant application
-"""
+import uuid
 from datetime import datetime, date
 from typing import Optional, List, Union
 from pydantic import BaseModel, Field
@@ -65,6 +65,25 @@ class DocumentType(str, Enum):
     WEEKLY_GOAL = "weekly_goal"
     HABIT = "habit"
     PROJECT = "project"
+    USER_PROFILE = "user_profile"
+    ONBOARDING_STATUS = "onboarding_status"
+    CHAT_SESSION = "chat_session"
+
+
+class OnboardingStep(str, Enum):
+    """Enum for onboarding steps"""
+    WELCOME = "welcome"
+    PROFILE_SETUP = "profile_setup" 
+    PREFERENCES = "preferences"
+    FIRST_TASK = "first_task"
+    COMPLETED = "completed"
+
+
+class ChatMessageRole(str, Enum):
+    """Enum for chat message roles"""
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
 
 
 class BaseDocument(BaseModel):
@@ -78,6 +97,10 @@ class BaseDocument(BaseModel):
     def to_cosmos_dict(self) -> dict:
         """Convert to dictionary format for CosmosDB"""
         data = self.model_dump()
+        
+        # Generate UUID for id if it's None
+        if data.get('id') is None:
+            data['id'] = str(uuid.uuid4())
         
         # Convert datetime, date, and enum objects to proper formats
         for field_name, field_value in data.items():
@@ -380,21 +403,103 @@ class UpdateTaskRequest(BaseModel):
     project_id: Optional[str] = None
     weekly_goal_id: Optional[str] = None
     habit_id: Optional[str] = None
-    estimated_hours: Optional[float] = None
-    actual_hours: Optional[float] = None
-    metadata: Optional[dict] = None
-    user_id: Optional[str] = None
 
 
-# Special Request Models
+# =====================
+# User Profile Models
+# =====================
 
-class HabitCompletionRequest(BaseModel):
-    """Request model for recording habit completion"""
-    completion_date: Optional[datetime] = Field(default_factory=datetime.utcnow)
-    notes: Optional[str] = None
+class ChatMessage(BaseModel):
+    """Individual chat message"""
+    role: ChatMessageRole = Field(..., description="Message role (user/assistant/system)")
+    content: str = Field(..., description="Message content")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Message timestamp")
 
 
-class ProgressUpdateRequest(BaseModel):
-    """Request model for updating progress on goals/projects"""
-    progress_percentage: float = Field(..., ge=0, le=100, description="Progress percentage (0-100)")
-    notes: Optional[str] = None
+class ChatSession(BaseDocument):
+    """Chat session model for storing conversation history"""
+    session_title: str = Field(..., description="Brief title for the session")
+    messages: List[ChatMessage] = Field(default_factory=list, description="Chat messages in this session")
+    session_date: date = Field(default_factory=date.today, description="Date of the session")
+    message_count: int = Field(default=0, description="Number of messages in session")
+    document_type: DocumentType = Field(default=DocumentType.CHAT_SESSION, description="Document type")
+
+
+class OnboardingStatus(BaseDocument):
+    """Onboarding progress tracking"""
+    current_step: OnboardingStep = Field(default=OnboardingStep.WELCOME, description="Current onboarding step")
+    completed_steps: List[OnboardingStep] = Field(default_factory=list, description="Completed onboarding steps")
+    is_completed: bool = Field(default=False, description="Whether onboarding is fully completed")
+    completed_at: Optional[datetime] = Field(default=None, description="Onboarding completion timestamp")
+    welcome_shown: bool = Field(default=False, description="Whether welcome message has been shown")
+    interview_responses: dict = Field(default_factory=dict, description="Interview responses during onboarding")
+    document_type: DocumentType = Field(default=DocumentType.ONBOARDING_STATUS, description="Document type")
+
+
+class UserProfile(BaseDocument):
+    """User profile model for personalized chat"""
+    # OAuth provider data (auto-populated when possible)
+    oauth_provider: Optional[str] = Field(default=None, description="OAuth provider (microsoft, google)")
+    oauth_id: Optional[str] = Field(default=None, description="OAuth provider user ID")
+    
+    # Core profile data
+    display_name: str = Field(..., description="User's preferred display name")
+    email: str = Field(..., description="User's email address")
+    first_name: Optional[str] = Field(default=None, description="User's first name")
+    last_name: Optional[str] = Field(default=None, description="User's last name")
+    
+    # Location and timezone
+    location: Optional[str] = Field(default=None, description="User's location (city, country)")
+    timezone: Optional[str] = Field(default=None, description="User's timezone")
+    
+    # Profile customization
+    profile_picture_url: Optional[str] = Field(default=None, description="Profile picture URL")
+    bio: Optional[str] = Field(default=None, description="User bio/description")
+    
+    # Chat preferences
+    preferred_greeting: Optional[str] = Field(default=None, description="User's preferred greeting style")
+    communication_style: Optional[str] = Field(default=None, description="Preferred communication style")
+    
+    # Privacy settings
+    data_sharing_consent: bool = Field(default=False, description="Consent for data sharing")
+    analytics_consent: bool = Field(default=False, description="Consent for analytics tracking")
+    
+    # Profile completion
+    is_profile_complete: bool = Field(default=False, description="Whether profile setup is complete")
+    last_active: datetime = Field(default_factory=datetime.utcnow, description="Last activity timestamp")
+    
+    document_type: DocumentType = Field(default=DocumentType.USER_PROFILE, description="Document type")
+
+
+# =====================
+# Request/Response Models for User Profile API
+# =====================
+
+class CreateUserProfileRequest(BaseModel):
+    """Request model for creating a user profile"""
+    display_name: str = Field(..., description="User's preferred display name")
+    email: str = Field(..., description="User's email address")
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    location: Optional[str] = None
+    timezone: Optional[str] = None
+    bio: Optional[str] = None
+    preferred_greeting: Optional[str] = None
+    communication_style: Optional[str] = None
+    oauth_provider: Optional[str] = None
+    oauth_id: Optional[str] = None
+
+
+class UpdateUserProfileRequest(BaseModel):
+    """Request model for updating a user profile"""
+    display_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    location: Optional[str] = None
+    timezone: Optional[str] = None
+    bio: Optional[str] = None
+    preferred_greeting: Optional[str] = None
+    communication_style: Optional[str] = None
+    profile_picture_url: Optional[str] = None
+    data_sharing_consent: Optional[bool] = None
+    analytics_consent: Optional[bool] = None
