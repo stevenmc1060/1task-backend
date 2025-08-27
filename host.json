@@ -1,24 +1,8 @@
 {
   "version": "2.0",
-  "logging": {
-    "applicationInsights": {
-      "samplingSettings": {
-        "isEnabled": true,
-        "excludedTypes": "Request"
-      }
-    }
-  },
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
     "version": "[4.*, 5.0.0)"
   },
-  "cors": {
-    "supportCredentials": true,
-    "allowedOrigins": [
-      "http://localhost:8080",
-      "http://127.0.0.1:8080",
-      "https://polite-field-04b5c2a10.1.azurestaticapps.net",
-      "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
-    ]
-  }
+  "functionTimeout": "00:05:00"
 }
