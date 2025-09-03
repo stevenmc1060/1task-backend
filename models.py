@@ -57,6 +57,37 @@ class HabitStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class LifeArea(str, Enum):
+    """Enum for life areas to categorize goals, tasks, habits, and projects"""
+    PROFESSIONAL_WORK = "professional_work"
+    PERSONAL_GROWTH_LEARNING = "personal_growth_learning"
+    RELATIONSHIPS = "relationships"
+    HEALTH_SELF_CARE = "health_self_care"
+    FINANCES = "finances"
+    COMMUNITY = "community"
+    
+    @classmethod
+    def get_display_name(cls, life_area: str) -> str:
+        """Get user-friendly display name for life area"""
+        display_names = {
+            cls.PROFESSIONAL_WORK: "Professional / Work",
+            cls.PERSONAL_GROWTH_LEARNING: "Personal Growth & Learning",
+            cls.RELATIONSHIPS: "Relationships",
+            cls.HEALTH_SELF_CARE: "Health & Self-Care",
+            cls.FINANCES: "Finances",
+            cls.COMMUNITY: "Community"
+        }
+        return display_names.get(life_area, life_area.replace("_", " ").title())
+    
+    @classmethod
+    def get_all_areas_with_display_names(cls) -> dict:
+        """Get all life areas with their display names"""
+        return {
+            area.value: cls.get_display_name(area.value) 
+            for area in cls
+        }
+
+
 class DocumentType(str, Enum):
     """Enum for document types"""
     TASK = "task"
@@ -147,6 +178,7 @@ class YearlyGoal(BaseDocument):
     description: Optional[str] = Field(default=None, description="Goal description")
     status: GoalStatus = Field(default=GoalStatus.NOT_STARTED, description="Goal status")
     target_year: int = Field(..., description="Target year for the goal")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this goal belongs to")
     progress_percentage: float = Field(default=0.0, description="Progress percentage (0-100)")
     key_metrics: List[str] = Field(default_factory=list, description="Key metrics to track")
     quarterly_goal_ids: List[str] = Field(default_factory=list, description="Associated quarterly goal IDs")
@@ -161,6 +193,7 @@ class QuarterlyGoal(BaseDocument):
     status: GoalStatus = Field(default=GoalStatus.NOT_STARTED, description="Goal status")
     target_year: int = Field(..., description="Target year")
     target_quarter: int = Field(..., description="Target quarter (1-4)")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this goal belongs to")
     progress_percentage: float = Field(default=0.0, description="Progress percentage (0-100)")
     key_metrics: List[str] = Field(default_factory=list, description="Key metrics to track")
     yearly_goal_id: Optional[str] = Field(default=None, description="Parent yearly goal ID")
@@ -175,6 +208,7 @@ class WeeklyGoal(BaseDocument):
     description: Optional[str] = Field(default=None, description="Goal description")
     status: GoalStatus = Field(default=GoalStatus.NOT_STARTED, description="Goal status")
     week_start_date: date = Field(..., description="Start date of the week")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this goal belongs to")
     progress_percentage: float = Field(default=0.0, description="Progress percentage (0-100)")
     key_metrics: List[str] = Field(default_factory=list, description="Key metrics to track")
     quarterly_goal_id: Optional[str] = Field(default=None, description="Parent quarterly goal ID")
@@ -189,6 +223,7 @@ class Habit(BaseDocument):
     description: Optional[str] = Field(default=None, description="Habit description")
     status: HabitStatus = Field(default=HabitStatus.ACTIVE, description="Habit status")
     frequency: HabitFrequency = Field(..., description="How often the habit should be performed")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this habit belongs to")
     target_count: int = Field(default=1, description="Target count per frequency period")
     current_count: int = Field(default=0, description="Completions in current period (e.g. week)")
     current_streak: int = Field(default=0, description="Current streak count")
@@ -206,6 +241,7 @@ class Project(BaseDocument):
     description: Optional[str] = Field(default=None, description="Project description")
     status: ProjectStatus = Field(default=ProjectStatus.PLANNING, description="Project status")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Project priority")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this project belongs to")
     start_date: Optional[date] = Field(default=None, description="Project start date")
     end_date: Optional[date] = Field(default=None, description="Project end date")
     progress_percentage: float = Field(default=0.0, description="Progress percentage (0-100)")
@@ -223,6 +259,7 @@ class Task(BaseDocument):
     description: Optional[str] = Field(default=None, description="Task description")
     status: TaskStatus = Field(default=TaskStatus.PENDING, description="Task status")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Task priority")
+    life_area: Optional[LifeArea] = Field(default=None, description="Life area this task belongs to")
     due_date: Optional[datetime] = Field(default=None, description="Task due date")
     completed_at: Optional[datetime] = Field(default=None, description="Task completion timestamp")
     tags: List[str] = Field(default_factory=list, description="Task tags")
@@ -264,6 +301,7 @@ class CreateYearlyGoalRequest(BaseModel):
     title: str
     description: Optional[str] = None
     target_year: int
+    life_area: Optional[LifeArea] = None
     key_metrics: List[str] = Field(default_factory=list)
     user_id: str
 
@@ -274,6 +312,7 @@ class CreateQuarterlyGoalRequest(BaseModel):
     description: Optional[str] = None
     target_year: int
     target_quarter: int
+    life_area: Optional[LifeArea] = None
     key_metrics: List[str] = Field(default_factory=list)
     yearly_goal_id: Optional[str] = None
     user_id: str
@@ -284,6 +323,7 @@ class CreateWeeklyGoalRequest(BaseModel):
     title: str
     description: Optional[str] = None
     week_start_date: date
+    life_area: Optional[LifeArea] = None
     key_metrics: List[str] = Field(default_factory=list)
     quarterly_goal_id: Optional[str] = None
     user_id: str
@@ -294,6 +334,7 @@ class CreateHabitRequest(BaseModel):
     title: str
     description: Optional[str] = None
     frequency: HabitFrequency
+    life_area: Optional[LifeArea] = None
     target_count: Union[int, str] = 1  # Accept both int and string, convert to int
     current_count: int = 0
     status: HabitStatus = HabitStatus.ACTIVE
@@ -315,6 +356,7 @@ class CreateProjectRequest(BaseModel):
     title: str
     description: Optional[str] = None
     priority: TaskPriority = TaskPriority.MEDIUM
+    life_area: Optional[LifeArea] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     tags: List[str] = Field(default_factory=list)
@@ -328,6 +370,7 @@ class CreateTaskRequest(BaseModel):
     title: str
     description: Optional[str] = None
     priority: TaskPriority = TaskPriority.MEDIUM
+    life_area: Optional[LifeArea] = None
     due_date: Optional[datetime] = None
     tags: List[str] = Field(default_factory=list)
     project_id: Optional[str] = None
@@ -345,6 +388,7 @@ class UpdateYearlyGoalRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[GoalStatus] = None
+    life_area: Optional[LifeArea] = None
     progress_percentage: Optional[float] = None
     key_metrics: Optional[List[str]] = None
 
@@ -354,6 +398,7 @@ class UpdateQuarterlyGoalRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[GoalStatus] = None
+    life_area: Optional[LifeArea] = None
     progress_percentage: Optional[float] = None
     key_metrics: Optional[List[str]] = None
 
@@ -363,6 +408,7 @@ class UpdateWeeklyGoalRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[GoalStatus] = None
+    life_area: Optional[LifeArea] = None
     progress_percentage: Optional[float] = None
     key_metrics: Optional[List[str]] = None
 
@@ -373,6 +419,7 @@ class UpdateHabitRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[HabitStatus] = None
     frequency: Optional[HabitFrequency] = None
+    life_area: Optional[LifeArea] = None
     target_count: Optional[int] = None
     current_count: Optional[int] = None
     reminder_time: Optional[str] = None
@@ -385,6 +432,7 @@ class UpdateProjectRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[ProjectStatus] = None
     priority: Optional[TaskPriority] = None
+    life_area: Optional[LifeArea] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     progress_percentage: Optional[float] = None
@@ -397,6 +445,7 @@ class UpdateTaskRequest(BaseModel):
     description: Optional[str] = None
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
+    life_area: Optional[LifeArea] = None
     due_date: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     tags: Optional[List[str]] = None
@@ -456,6 +505,10 @@ class UserProfile(BaseDocument):
     profile_picture_url: Optional[str] = Field(default=None, description="Profile picture URL")
     bio: Optional[str] = Field(default=None, description="User bio/description")
     
+    # Life area preferences
+    primary_life_areas: List[LifeArea] = Field(default_factory=list, description="User's primary focus life areas")
+    life_area_priorities: Optional[dict] = Field(default=None, description="User's priority ranking for life areas")
+    
     # Chat preferences
     preferred_greeting: Optional[str] = Field(default=None, description="User's preferred greeting style")
     communication_style: Optional[str] = Field(default=None, description="Preferred communication style")
@@ -484,6 +537,8 @@ class CreateUserProfileRequest(BaseModel):
     location: Optional[str] = None
     timezone: Optional[str] = None
     bio: Optional[str] = None
+    primary_life_areas: List[LifeArea] = Field(default_factory=list)
+    life_area_priorities: Optional[dict] = None
     preferred_greeting: Optional[str] = None
     communication_style: Optional[str] = None
     oauth_provider: Optional[str] = None
@@ -498,6 +553,8 @@ class UpdateUserProfileRequest(BaseModel):
     location: Optional[str] = None
     timezone: Optional[str] = None
     bio: Optional[str] = None
+    primary_life_areas: Optional[List[LifeArea]] = None
+    life_area_priorities: Optional[dict] = None
     preferred_greeting: Optional[str] = None
     communication_style: Optional[str] = None
     profile_picture_url: Optional[str] = None
