@@ -42,7 +42,8 @@ def create_cors_response(body: str, status_code: int = 200, mimetype: str = "app
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "https://polite-field-04b5c2a10.1.azurestaticapps.net",
-        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
+        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net",
+        "https://agreeable-rock-0ec903610-preview.centralus.1.azurestaticapps.net"
     ]
     
     # Determine allowed origin
