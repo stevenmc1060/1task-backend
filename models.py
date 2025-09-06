@@ -65,6 +65,7 @@ class LifeArea(str, Enum):
     HEALTH_SELF_CARE = "health_self_care"
     FINANCES = "finances"
     COMMUNITY = "community"
+    UNCATEGORIZED = "uncategorized"
     
     @classmethod
     def get_display_name(cls, life_area: str) -> str:
@@ -75,7 +76,8 @@ class LifeArea(str, Enum):
             cls.RELATIONSHIPS: "Relationships",
             cls.HEALTH_SELF_CARE: "Health & Self-Care",
             cls.FINANCES: "Finances",
-            cls.COMMUNITY: "Community"
+            cls.COMMUNITY: "Community",
+            cls.UNCATEGORIZED: "Uncategorized"
         }
         return display_names.get(life_area, life_area.replace("_", " ").title())
     
@@ -86,6 +88,20 @@ class LifeArea(str, Enum):
             area.value: cls.get_display_name(area.value) 
             for area in cls
         }
+    
+    @classmethod
+    def get_default_areas(cls) -> List[str]:
+        """Get default life areas for new users"""
+        return [cls.PROFESSIONAL_WORK, cls.PERSONAL_GROWTH_LEARNING]
+    
+    @classmethod
+    def is_valid_area(cls, area: str) -> bool:
+        """Check if a life area value is valid"""
+        try:
+            cls(area)
+            return True
+        except ValueError:
+            return False
 
 
 class DocumentType(str, Enum):
@@ -521,6 +537,11 @@ class UserProfile(BaseDocument):
     is_profile_complete: bool = Field(default=False, description="Whether profile setup is complete")
     last_active: datetime = Field(default_factory=datetime.utcnow, description="Last activity timestamp")
     
+    # Onboarding and suggestion engine data
+    first_run: bool = Field(default=True, description="Flag for first-time user experience")
+    onboarding_completed: bool = Field(default=False, description="Whether onboarding is complete")
+    interview_data: Optional[dict] = Field(default=None, description="Raw interview data for suggestion engine")
+    
     document_type: DocumentType = Field(default=DocumentType.USER_PROFILE, description="Document type")
 
 
@@ -543,6 +564,11 @@ class CreateUserProfileRequest(BaseModel):
     communication_style: Optional[str] = None
     oauth_provider: Optional[str] = None
     oauth_id: Optional[str] = None
+    
+    # Onboarding fields
+    first_run: Optional[bool] = Field(default=True, description="Flag for first-time user")
+    onboarding_completed: Optional[bool] = Field(default=False, description="Onboarding completion status")
+    interview_data: Optional[dict] = Field(default=None, description="Interview data for suggestions")
 
 
 class UpdateUserProfileRequest(BaseModel):
@@ -560,3 +586,8 @@ class UpdateUserProfileRequest(BaseModel):
     profile_picture_url: Optional[str] = None
     data_sharing_consent: Optional[bool] = None
     analytics_consent: Optional[bool] = None
+    
+    # Onboarding fields for developer utilities
+    first_run: Optional[bool] = None
+    onboarding_completed: Optional[bool] = None
+    interview_data: Optional[dict] = None

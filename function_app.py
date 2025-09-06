@@ -1303,13 +1303,9 @@ def update_onboarding_step(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-# =====================
-# Chat Session API Endpoints
-# =====================
-
-@app.route(route="chat/{user_id}/sessions", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
-def get_chat_sessions(req: func.HttpRequest) -> func.HttpResponse:
-    """Get recent chat sessions for user"""
+@app.route(route="onboarding/{user_id}/reset", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_onboarding_status(req: func.HttpRequest) -> func.HttpResponse:
+    """Reset onboarding status for user - useful for testing"""
     try:
         user_id = req.route_params.get('user_id')
         if not user_id:
@@ -1319,26 +1315,27 @@ def get_chat_sessions(req: func.HttpRequest) -> func.HttpResponse:
                 origin=req.headers.get('Origin')
             )
         
-        # Get limit from query params (default 5)
-        limit = int(req.params.get('limit', '5'))
+        # Reset onboarding status using repository
+        onboarding = onboarding_repo.reset_onboarding_status(user_id)
         
-        # Get chat sessions using repository
-        sessions = chat_session_repo.get_recent_chat_sessions(user_id, limit)
+        if not onboarding:
+            return create_cors_response(
+                json.dumps({"error": "Failed to reset onboarding"}),
+                status_code=500,
+                origin=req.headers.get('Origin')
+            )
         
         # Convert to dict and serialize
-        sessions_data = []
-        for session in sessions:
-            session_dict = session.to_cosmos_dict()
-            serialized_session = serialize_datetimes(session_dict)
-            sessions_data.append(serialized_session)
+        onboarding_dict = onboarding.to_cosmos_dict()
+        serialized_onboarding = serialize_datetimes(onboarding_dict)
         
         return create_cors_response(
-            json.dumps(sessions_data),
+            json.dumps({"message": "Onboarding reset successfully", "onboarding": serialized_onboarding}),
             origin=req.headers.get('Origin')
         )
         
     except Exception as e:
-        logging.error(f"Error getting chat sessions: {e}")
+        logging.error(f"Error resetting onboarding status: {e}")
         return create_cors_response(
             json.dumps({"error": "Internal server error"}),
             status_code=500,
@@ -1346,163 +1343,7 @@ def get_chat_sessions(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="chat/{user_id}/sessions", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def create_chat_session(req: func.HttpRequest) -> func.HttpResponse:
-    """Create a new chat session"""
-    try:
-        user_id = req.route_params.get('user_id')
-        if not user_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id is required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Parse request body
-        try:
-            request_data = req.get_json()
-            title = request_data.get('title', f"Chat {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')}")
-        except Exception as e:
-            return create_cors_response(
-                json.dumps({"error": f"Invalid request data: {str(e)}"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Create chat session using repository
-        session = chat_session_repo.create_chat_session(user_id, title)
-        
-        # Convert to dict and serialize
-        session_dict = session.to_cosmos_dict()
-        serialized_session = serialize_datetimes(session_dict)
-        
-        return create_cors_response(
-            json.dumps(serialized_session),
-            status_code=201,
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logging.error(f"Error creating chat session: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="chat/{user_id}/sessions/{session_id}/messages", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def add_chat_message(req: func.HttpRequest) -> func.HttpResponse:
-    """Add a message to a chat session"""
-    try:
-        user_id = req.route_params.get('user_id')
-        session_id = req.route_params.get('session_id')
-        
-        if not user_id or not session_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id and session_id are required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Parse request body
-        try:
-            request_data = req.get_json()
-            role = ChatMessageRole(request_data.get('role'))
-            content = request_data.get('content')
-            
-            if not content:
-                raise ValueError("Message content is required")
-                
-            message = ChatMessage(role=role, content=content)
-        except Exception as e:
-            return create_cors_response(
-                json.dumps({"error": f"Invalid message data: {str(e)}"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Add message to session using repository
-        session = chat_session_repo.add_message_to_session(user_id, session_id, message)
-        
-        if not session:
-            return create_cors_response(
-                json.dumps({"error": "Session not found"}),
-                status_code=404,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Convert to dict and serialize
-        session_dict = session.to_cosmos_dict()
-        serialized_session = serialize_datetimes(session_dict)
-        
-        return create_cors_response(
-            json.dumps(serialized_session),
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logging.error(f"Error adding chat message: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-# =====================
-# CORS Options Endpoints for User Profile APIs
-# =====================
-
-@app.route(route="profiles", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def profiles_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for profiles endpoint"""
-    origin = req.headers.get('Origin')
-    allowed_origins = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
-        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
-    ]
-    
-    allowed_origin = "*"
-    if origin and origin in allowed_origins:
-        allowed_origin = origin
-    
-    return func.HttpResponse(
-        "",
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": allowed_origin,
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-User-Id",
-            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
-        }
-    )
-
-
-@app.route(route="profiles/{user_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)  
-def profile_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for specific profile endpoint"""
-    origin = req.headers.get('Origin')
-    allowed_origins = [
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://polite-field-04b5c2a10.1.azurestaticapps.net",
-        "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net"
-    ]
-    
-    allowed_origin = "*"
-    if origin and origin in allowed_origins:
-        allowed_origin = origin
-    
-    return func.HttpResponse(
-        "",
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": allowed_origin,
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-User-Id",
-            "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
-        }
-    )
+@app.route(route="onboarding/{user_id}/reset", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_onboarding_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for reset onboarding endpoint"""
+    return create_cors_response_from_request(req, "", status_code=200)

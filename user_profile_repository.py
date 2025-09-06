@@ -40,10 +40,16 @@ class UserProfileRepository:
                 location=request.location,
                 timezone=request.timezone,
                 bio=request.bio,
+                primary_life_areas=request.primary_life_areas or [],
+                life_area_priorities=request.life_area_priorities,
                 preferred_greeting=request.preferred_greeting,
                 communication_style=request.communication_style,
                 oauth_provider=request.oauth_provider,
                 oauth_id=request.oauth_id,
+                # Onboarding fields
+                first_run=request.first_run if hasattr(request, 'first_run') else True,
+                onboarding_completed=request.onboarding_completed if hasattr(request, 'onboarding_completed') else False,
+                interview_data=request.interview_data if hasattr(request, 'interview_data') else None,
             )
             
             # Save to database
@@ -215,6 +221,11 @@ class OnboardingRepository:
             
             # Store interview responses if provided
             if interview_data:
+                # Handle special flags that should be set on the object itself
+                if 'welcome_shown' in interview_data:
+                    onboarding.welcome_shown = interview_data.pop('welcome_shown')
+                
+                # Update interview responses with remaining data
                 onboarding.interview_responses.update(interview_data)
             
             # Check if onboarding is complete
@@ -250,6 +261,36 @@ class OnboardingRepository:
         except Exception as e:
             logger.error(f"Error deleting onboarding status: {e}")
             return False
+    
+    def reset_onboarding_status(self, user_id: str) -> Optional[OnboardingStatus]:
+        """Reset onboarding status to initial state for user - useful for testing"""
+        try:
+            # Get existing onboarding status
+            onboarding = self.get_onboarding_status(user_id)
+            if not onboarding:
+                # Create new one if it doesn't exist
+                onboarding = self.create_onboarding_status(user_id)
+                return onboarding
+            
+            # Reset to initial state
+            onboarding.current_step = OnboardingStep.WELCOME
+            onboarding.completed_steps = []
+            onboarding.is_completed = False
+            onboarding.completed_at = None
+            onboarding.welcome_shown = False
+            onboarding.interview_responses = {}
+            onboarding.updated_at = datetime.utcnow()
+            
+            # Save to database
+            onboarding_dict = onboarding.to_cosmos_dict()
+            self.container.replace_item(item=onboarding.id, body=onboarding_dict)
+            
+            logger.info(f"Reset onboarding status for user_id: {user_id}")
+            return onboarding
+            
+        except Exception as e:
+            logger.error(f"Error resetting onboarding status: {e}")
+            return None
 
 
 class ChatSessionRepository:
