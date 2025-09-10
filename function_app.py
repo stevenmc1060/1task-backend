@@ -318,7 +318,7 @@ def delete_task(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
-        success = generic_repository.delete_document(task_id, user_id)
+        success = generic_repository.delete_document(task_id, user_id, Task)
         
         if not success:
             return create_cors_response(
@@ -465,7 +465,7 @@ def delete_yearly_goal(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        success = generic_repository.delete_document(goal_id, user_id)
+        success = generic_repository.delete_document(goal_id, user_id, YearlyGoal)
         if not success:
             return create_cors_response(json.dumps({"error": "Goal not found"}), status_code=404)
         
@@ -543,7 +543,7 @@ def delete_quarterly_goal(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        success = generic_repository.delete_document(goal_id, user_id)
+        success = generic_repository.delete_document(goal_id, user_id, QuarterlyGoal)
         if not success:
             return create_cors_response(json.dumps({"error": "Goal not found"}), status_code=404)
         
@@ -621,7 +621,7 @@ def delete_weekly_goal(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        success = generic_repository.delete_document(goal_id, user_id)
+        success = generic_repository.delete_document(goal_id, user_id, WeeklyGoal)
         if not success:
             return create_cors_response(json.dumps({"error": "Goal not found"}), status_code=404)
         
@@ -860,10 +860,14 @@ def delete_habit(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        success = generic_repository.delete_document(habit_id, user_id)
+        logger.info(f"[HABIT DELETE] Deleting habit {habit_id} for user {user_id}")
+        
+        success = generic_repository.delete_document(habit_id, user_id, Habit)
         if not success:
+            logger.warning(f"[HABIT DELETE] Habit {habit_id} not found for user {user_id}")
             return create_cors_response(json.dumps({"error": "Habit not found"}), status_code=404)
         
+        logger.info(f"[HABIT DELETE] Successfully deleted habit {habit_id}")
         return create_cors_response(json.dumps({"message": "Habit deleted successfully"}))
     except Exception as e:
         logger.error(f"Error in delete_habit: {e}")
@@ -938,7 +942,7 @@ def delete_project(req: func.HttpRequest) -> func.HttpResponse:
         if not user_id:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
-        success = generic_repository.delete_document(project_id, user_id)
+        success = generic_repository.delete_document(project_id, user_id, Project)
         if not success:
             return create_cors_response(json.dumps({"error": "Project not found"}), status_code=404)
         

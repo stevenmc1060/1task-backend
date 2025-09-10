@@ -50,6 +50,9 @@ class UserProfileRepository:
                 first_run=request.first_run if hasattr(request, 'first_run') else True,
                 onboarding_completed=request.onboarding_completed if hasattr(request, 'onboarding_completed') else False,
                 interview_data=request.interview_data if hasattr(request, 'interview_data') else None,
+                # Onboarding suggestions management fields (with defaults)
+                onboarding_suggestions_cleared=getattr(request, 'onboarding_suggestions_cleared', False),
+                deleted_onboarding_suggestions=getattr(request, 'deleted_onboarding_suggestions', []),
             )
             
             # Save to database

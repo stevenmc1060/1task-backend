@@ -542,6 +542,10 @@ class UserProfile(BaseDocument):
     onboarding_completed: bool = Field(default=False, description="Whether onboarding is complete")
     interview_data: Optional[dict] = Field(default=None, description="Raw interview data for suggestion engine")
     
+    # Onboarding suggestions management
+    onboarding_suggestions_cleared: bool = Field(default=False, description="Global flag to permanently hide all onboarding suggestions")
+    deleted_onboarding_suggestions: List[str] = Field(default_factory=list, description="List of individual onboarding suggestion IDs that were deleted")
+    
     document_type: DocumentType = Field(default=DocumentType.USER_PROFILE, description="Document type")
 
 
@@ -591,3 +595,7 @@ class UpdateUserProfileRequest(BaseModel):
     first_run: Optional[bool] = None
     onboarding_completed: Optional[bool] = None
     interview_data: Optional[dict] = None
+    
+    # Onboarding suggestions management
+    onboarding_suggestions_cleared: Optional[bool] = None
+    deleted_onboarding_suggestions: Optional[List[str]] = None
