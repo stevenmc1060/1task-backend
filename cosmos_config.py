@@ -23,6 +23,7 @@ class CosmosDBConfig:
         self.database_name = os.getenv('COSMOS_DATABASE_NAME', '1task-db')
         self.tasks_container_name = os.getenv('COSMOS_CONTAINER_NAME', 'tasks')
         self.profiles_container_name = os.getenv('COSMOS_PROFILES_CONTAINER_NAME', 'user-profiles')
+        self.preview_codes_container_name = os.getenv('COSMOS_PREVIEW_CODES_CONTAINER_NAME', 'preview-codes')
         
         if not self.endpoint or not self.key:
             raise ValueError("COSMOS_ENDPOINT and COSMOS_KEY environment variables must be set")
@@ -37,6 +38,7 @@ class CosmosDBManager:
         self.database: Optional[DatabaseProxy] = None
         self.tasks_container: Optional[ContainerProxy] = None
         self.profiles_container: Optional[ContainerProxy] = None
+        self.preview_codes_container: Optional[ContainerProxy] = None
         
     def initialize(self):
         """Initialize CosmosDB client, database, and containers"""
@@ -55,6 +57,9 @@ class CosmosDBManager:
             
             self.profiles_container = self._create_profiles_container_if_not_exists()
             logger.info(f"Profiles container '{self.config.profiles_container_name}' ready")
+            
+            self.preview_codes_container = self._create_preview_codes_container_if_not_exists()
+            logger.info(f"Preview codes container '{self.config.preview_codes_container_name}' ready")
             
         except Exception as e:
             logger.error(f"Failed to initialize CosmosDB: {e}")
@@ -99,6 +104,20 @@ class CosmosDBManager:
         
         return container
     
+    def _create_preview_codes_container_if_not_exists(self) -> ContainerProxy:
+        """Create preview codes container if it doesn't exist"""
+        try:
+            container = self.database.create_container(
+                id=self.config.preview_codes_container_name,
+                partition_key={'paths': ['/code'], 'kind': 'Hash'}
+            )
+            logger.info(f"Created preview codes container: {self.config.preview_codes_container_name}")
+        except CosmosResourceExistsError:
+            container = self.database.get_container_client(self.config.preview_codes_container_name)
+            logger.info(f"Using existing preview codes container: {self.config.preview_codes_container_name}")
+        
+        return container
+    
     def get_tasks_container(self) -> ContainerProxy:
         """Get the tasks container instance"""
         if not self.tasks_container:
@@ -110,6 +129,12 @@ class CosmosDBManager:
         if not self.profiles_container:
             self.initialize()
         return self.profiles_container
+    
+    def get_preview_codes_container(self) -> ContainerProxy:
+        """Get the preview codes container instance"""
+        if not self.preview_codes_container:
+            self.initialize()
+        return self.preview_codes_container
 
 
 # Global instance

@@ -53,6 +53,12 @@ class UserProfileRepository:
                 # Onboarding suggestions management fields (with defaults)
                 onboarding_suggestions_cleared=getattr(request, 'onboarding_suggestions_cleared', False),
                 deleted_onboarding_suggestions=getattr(request, 'deleted_onboarding_suggestions', []),
+                # Preview code tracking
+                preview_code_used=getattr(request, 'preview_code_used', None),
+                # Address information
+                contact_address=getattr(request, 'contact_address', None),
+                billing_address=getattr(request, 'billing_address', None),
+                billing_address_same_as_contact=getattr(request, 'billing_address_same_as_contact', True),
             )
             
             # Save to database

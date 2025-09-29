@@ -26,10 +26,12 @@ class GenericRepository:
     def _get_container(self, document_type):
         """Get the appropriate container based on document type"""
         # Import here to avoid circular imports
-        from models import UserProfile, OnboardingStatus, ChatSession
+        from models import UserProfile, OnboardingStatus, ChatSession, PreviewCode
         
         if document_type in [UserProfile, OnboardingStatus, ChatSession]:
             return self.cosmos_manager.get_profiles_container()
+        elif document_type == PreviewCode:
+            return self.cosmos_manager.get_preview_codes_container()
         else:
             return self.cosmos_manager.get_tasks_container()
     

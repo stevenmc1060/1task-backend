@@ -115,6 +115,7 @@ class DocumentType(str, Enum):
     USER_PROFILE = "user_profile"
     ONBOARDING_STATUS = "onboarding_status"
     CHAT_SESSION = "chat_session"
+    PREVIEW_CODE = "preview_code"
 
 
 class OnboardingStep(str, Enum):
@@ -546,7 +547,43 @@ class UserProfile(BaseDocument):
     onboarding_suggestions_cleared: bool = Field(default=False, description="Global flag to permanently hide all onboarding suggestions")
     deleted_onboarding_suggestions: List[str] = Field(default_factory=list, description="List of individual onboarding suggestion IDs that were deleted")
     
+    # Preview code tracking
+    preview_code_used: Optional[str] = Field(default=None, description="Preview code used during registration")
+    
+    # Address information
+    contact_address: Optional[dict] = Field(default=None, description="Contact/shipping address")
+    billing_address: Optional[dict] = Field(default=None, description="Billing address")
+    billing_address_same_as_contact: Optional[bool] = Field(default=True, description="Whether billing address is same as contact")
+    
     document_type: DocumentType = Field(default=DocumentType.USER_PROFILE, description="Document type")
+
+
+class PreviewCode(BaseDocument):
+    """Preview code model for early access control"""
+    code: str = Field(..., description="The preview code string")
+    is_used: bool = Field(default=False, description="Whether the code has been used")
+    used_by_user_id: Optional[str] = Field(default=None, description="User ID who used this code")
+    used_at: Optional[datetime] = Field(default=None, description="Timestamp when code was used")
+    document_type: DocumentType = Field(default=DocumentType.PREVIEW_CODE, description="Document type")
+    
+    def to_cosmos_dict(self) -> dict:
+        """Convert to dictionary format for CosmosDB"""
+        data = super().to_cosmos_dict()
+        # Use code as the document ID for fast lookups
+        data['id'] = self.code
+        return data
+    
+    @classmethod
+    def from_cosmos_dict(cls, data: dict) -> 'PreviewCode':
+        """Create PreviewCode instance from CosmosDB document"""
+        # Convert ISO strings back to datetime objects
+        for field in ['created_at', 'updated_at', 'used_at']:
+            if data.get(field) and isinstance(data[field], str):
+                try:
+                    data[field] = datetime.fromisoformat(data[field])
+                except ValueError:
+                    data[field] = None
+        return cls(**data)
 
 
 # =====================
@@ -573,6 +610,14 @@ class CreateUserProfileRequest(BaseModel):
     first_run: Optional[bool] = Field(default=True, description="Flag for first-time user")
     onboarding_completed: Optional[bool] = Field(default=False, description="Onboarding completion status")
     interview_data: Optional[dict] = Field(default=None, description="Interview data for suggestions")
+    
+    # Preview code tracking (from frontend onboarding)
+    preview_code_used: Optional[str] = Field(default=None, description="Preview code used during registration")
+    
+    # Contact and billing address information
+    contact_address: Optional[dict] = Field(default=None, description="Contact/shipping address")
+    billing_address: Optional[dict] = Field(default=None, description="Billing address")
+    billing_address_same_as_contact: Optional[bool] = Field(default=True, description="Whether billing address is same as contact")
 
 
 class UpdateUserProfileRequest(BaseModel):
@@ -599,3 +644,29 @@ class UpdateUserProfileRequest(BaseModel):
     # Onboarding suggestions management
     onboarding_suggestions_cleared: Optional[bool] = None
     deleted_onboarding_suggestions: Optional[List[str]] = None
+    
+    # Preview code tracking
+    preview_code_used: Optional[str] = None
+    
+    # Address information
+    contact_address: Optional[dict] = None
+    billing_address: Optional[dict] = None
+    billing_address_same_as_contact: Optional[bool] = None
+
+
+# =====================
+# Preview Code Models
+# =====================
+
+class PreviewCodeValidationRequest(BaseModel):
+    """Request model for preview code validation"""
+    code: str = Field(..., description="Preview code to validate")
+    user_id: str = Field(..., description="User ID attempting to use the code")
+
+
+class PreviewCodeValidationResponse(BaseModel):
+    """Response model for preview code validation"""
+    valid: bool = Field(..., description="Whether the code is valid")
+    message: str = Field(..., description="Human-readable message")
+    error: Optional[str] = Field(default=None, description="Error code if validation failed")
+    code_id: Optional[str] = Field(default=None, description="Preview code ID if valid")

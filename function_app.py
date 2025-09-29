@@ -12,11 +12,13 @@ from models import (
     UserProfile, CreateUserProfileRequest, UpdateUserProfileRequest,
     OnboardingStatus, OnboardingStep,
     ChatSession, ChatMessage, ChatMessageRole,
-    DocumentType
+    DocumentType,
+    PreviewCodeValidationRequest, PreviewCodeValidationResponse
 )
 from task_repository import task_repository
 from generic_repository import generic_repository
 from user_profile_repository import user_profile_repo, onboarding_repo, chat_session_repo
+from preview_code_repository import preview_code_repo
 
 app = func.FunctionApp()
 
@@ -1016,6 +1018,93 @@ def habit_options(req: func.HttpRequest) -> func.HttpResponse:
             "Access-Control-Allow-Credentials": "true" if origin and origin in allowed_origins else "false"
         }
     )
+
+
+# =====================
+# Preview Code API Endpoints
+# =====================
+
+@app.route(route="preview-codes/validate", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def validate_preview_code(req: func.HttpRequest) -> func.HttpResponse:
+    """Validate a preview code for early access"""
+    try:
+        # Parse request body
+        try:
+            request_data = req.get_json()
+            if not request_data:
+                return create_cors_response(
+                    json.dumps({
+                        "valid": False,
+                        "message": "Request body is required",
+                        "error": "MISSING_BODY"
+                    }),
+                    status_code=400,
+                    origin=req.headers.get('Origin')
+                )
+            
+            validation_request = PreviewCodeValidationRequest(**request_data)
+        except Exception as e:
+            return create_cors_response(
+                json.dumps({
+                    "valid": False,
+                    "message": f"Invalid request data: {str(e)}",
+                    "error": "INVALID_REQUEST"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Validate the preview code
+        is_valid, message, error_code = preview_code_repo.validate_and_use_preview_code(
+            validation_request.code,
+            validation_request.user_id
+        )
+        
+        # Create response
+        response = PreviewCodeValidationResponse(
+            valid=is_valid,
+            message=message,
+            error=error_code,
+            code_id=validation_request.code if is_valid else None
+        )
+        
+        return create_cors_response(
+            json.dumps(response.model_dump()),
+            status_code=200,
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error validating preview code: {e}")
+        return create_cors_response(
+            json.dumps({
+                "valid": False,
+                "message": "Server error validating preview code",
+                "error": "SERVER_ERROR"
+            }),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="preview-codes/stats", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
+    """Get preview code usage statistics (admin endpoint)"""
+    try:
+        stats = preview_code_repo.get_preview_code_stats()
+        
+        return create_cors_response(
+            json.dumps(serialize_datetimes(stats)),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting preview code stats: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Failed to get preview code statistics"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
 
 
 # =====================
