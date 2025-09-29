@@ -13,12 +13,17 @@ from models import (
     OnboardingStatus, OnboardingStep,
     ChatSession, ChatMessage, ChatMessageRole,
     DocumentType,
-    PreviewCodeValidationRequest, PreviewCodeValidationResponse
+    PreviewCodeValidationRequest, PreviewCodeValidationResponse,
+    # Notes application models
+    Note, Folder, FileAttachment,
+    CreateNoteRequest, UpdateNoteRequest, NotesListResponse,
+    CreateFolderRequest, UpdateFolderRequest, FoldersListResponse
 )
 from task_repository import task_repository
 from generic_repository import generic_repository
 from user_profile_repository import user_profile_repo, onboarding_repo, chat_session_repo
 from preview_code_repository import preview_code_repo
+from notes_repository import notes_repository, folders_repository
 
 app = func.FunctionApp()
 
@@ -1439,4 +1444,511 @@ def reset_onboarding_status(req: func.HttpRequest) -> func.HttpResponse:
 @app.route(route="onboarding/{user_id}/reset", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def reset_onboarding_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for reset onboarding endpoint"""
+    return create_cors_response_from_request(req, "", status_code=200)
+
+
+# =============================================================================
+# NOTES APPLICATION ENDPOINTS
+# =============================================================================
+
+@app.route(route="notes", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_notes(req: func.HttpRequest) -> func.HttpResponse:
+    """Get notes for a user with optional filtering"""
+    logger.info('Get notes endpoint triggered.')
+    
+    try:
+        user_id = req.params.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Get optional query parameters
+        folder_id = req.params.get('folderId')
+        search_term = req.params.get('search')
+        tag = req.params.get('tag')
+        pinned_only = req.params.get('pinned') == 'true'
+        
+        # Get notes based on filters
+        if search_term:
+            notes = notes_repository.search_notes(user_id, search_term)
+        else:
+            notes = notes_repository.list_notes(user_id, folder_id)
+        
+        # Apply additional filters
+        if tag:
+            notes = [note for note in notes if tag in note.tags]
+        
+        if pinned_only:
+            notes = [note for note in notes if note.is_pinned]
+        
+        # Convert to response format
+        notes_data = [note.dict() for note in notes]
+        serialized_notes = serialize_datetimes(notes_data)
+        
+        response_data = {"notes": serialized_notes}
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(response_data)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting notes: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="notes", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def create_note(req: func.HttpRequest) -> func.HttpResponse:
+    """Create a new note"""
+    logger.info('Create note endpoint triggered.')
+    
+    try:
+        req_body = req.get_json()
+        if not req_body:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Request body is required"}),
+                status_code=400
+            )
+        
+        # Validate required fields
+        user_id = req_body.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Parse request using Pydantic model
+        try:
+            create_request = CreateNoteRequest(**req_body)
+        except Exception as e:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400
+            )
+        
+        # Create note object
+        note = Note(
+            user_id=user_id,
+            title=create_request.title,
+            content=create_request.content,
+            tags=create_request.tags,
+            is_pinned=create_request.is_pinned,
+            folder_id=create_request.folder_id,
+            attachments=create_request.attachments or []
+        )
+        
+        # Save to database
+        created_note = notes_repository.create_note(note)
+        
+        # Convert to response format
+        note_data = created_note.dict()
+        serialized_note = serialize_datetimes(note_data)
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(serialized_note),
+            status_code=201
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating note: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="notes/{note_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_note(req: func.HttpRequest) -> func.HttpResponse:
+    """Get a specific note by ID"""
+    logger.info('Get note endpoint triggered.')
+    
+    try:
+        note_id = req.route_params.get('note_id')
+        user_id = req.params.get('user_id')
+        
+        if not note_id or not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "note_id and user_id are required"}),
+                status_code=400
+            )
+        
+        # Get note from database
+        note = notes_repository.get_note(note_id, user_id)
+        
+        if not note:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Note not found"}),
+                status_code=404
+            )
+        
+        # Convert to response format
+        note_data = note.dict()
+        serialized_note = serialize_datetimes(note_data)
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(serialized_note)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting note: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="notes/{note_id}", methods=["PATCH"], auth_level=func.AuthLevel.ANONYMOUS)
+def update_note(req: func.HttpRequest) -> func.HttpResponse:
+    """Update an existing note"""
+    logger.info('Update note endpoint triggered.')
+    
+    try:
+        note_id = req.route_params.get('note_id')
+        req_body = req.get_json()
+        
+        if not note_id or not req_body:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "note_id and request body are required"}),
+                status_code=400
+            )
+        
+        user_id = req_body.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Parse request using Pydantic model
+        try:
+            update_request = UpdateNoteRequest(**req_body)
+            update_data = update_request.dict(exclude_unset=True)
+            # Remove user_id from update data as it shouldn't be updated
+            update_data.pop('user_id', None)
+        except Exception as e:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400
+            )
+        
+        # Update note in database
+        updated_note = notes_repository.update_note(note_id, user_id, update_data)
+        
+        if not updated_note:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Note not found"}),
+                status_code=404
+            )
+        
+        # Convert to response format
+        note_data = updated_note.dict()
+        serialized_note = serialize_datetimes(note_data)
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(serialized_note)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error updating note: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="notes/{note_id}", methods=["DELETE"], auth_level=func.AuthLevel.ANONYMOUS)
+def delete_note(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete a note"""
+    logger.info('Delete note endpoint triggered.')
+    
+    try:
+        note_id = req.route_params.get('note_id')
+        user_id = req.params.get('user_id')
+        
+        if not note_id or not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "note_id and user_id are required"}),
+                status_code=400
+            )
+        
+        # Delete note from database
+        success = notes_repository.delete_note(note_id, user_id)
+        
+        if not success:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Note not found"}),
+                status_code=404
+            )
+        
+        return create_cors_response_from_request(
+            req,
+            "",
+            status_code=204
+        )
+        
+    except Exception as e:
+        logger.error(f"Error deleting note: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="folders", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_folders(req: func.HttpRequest) -> func.HttpResponse:
+    """Get folders for a user"""
+    logger.info('Get folders endpoint triggered.')
+    
+    try:
+        user_id = req.params.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Get optional parent filter
+        parent_id = req.params.get('parentId')
+        
+        # Get folders from database
+        folders = folders_repository.list_folders(user_id, parent_id)
+        
+        # Convert to response format
+        folders_data = [folder.dict() for folder in folders]
+        serialized_folders = serialize_datetimes(folders_data)
+        
+        response_data = {"folders": serialized_folders}
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(response_data)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting folders: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="folders", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def create_folder(req: func.HttpRequest) -> func.HttpResponse:
+    """Create a new folder"""
+    logger.info('Create folder endpoint triggered.')
+    
+    try:
+        req_body = req.get_json()
+        if not req_body:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Request body is required"}),
+                status_code=400
+            )
+        
+        # Validate required fields
+        user_id = req_body.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Parse request using Pydantic model
+        try:
+            create_request = CreateFolderRequest(**req_body)
+        except Exception as e:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400
+            )
+        
+        # Create folder object
+        folder = Folder(
+            user_id=user_id,
+            name=create_request.name,
+            parent_id=create_request.parent_id,
+            color=create_request.color
+        )
+        
+        # Save to database
+        created_folder = folders_repository.create_folder(folder)
+        
+        # Convert to response format
+        folder_data = created_folder.dict()
+        serialized_folder = serialize_datetimes(folder_data)
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(serialized_folder),
+            status_code=201
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating folder: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="folders/{folder_id}", methods=["PATCH"], auth_level=func.AuthLevel.ANONYMOUS)
+def update_folder(req: func.HttpRequest) -> func.HttpResponse:
+    """Update an existing folder"""
+    logger.info('Update folder endpoint triggered.')
+    
+    try:
+        folder_id = req.route_params.get('folder_id')
+        req_body = req.get_json()
+        
+        if not folder_id or not req_body:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "folder_id and request body are required"}),
+                status_code=400
+            )
+        
+        user_id = req_body.get('user_id')
+        if not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "user_id is required"}),
+                status_code=400
+            )
+        
+        # Parse request using Pydantic model
+        try:
+            update_request = UpdateFolderRequest(**req_body)
+            update_data = update_request.dict(exclude_unset=True)
+            # Remove user_id from update data as it shouldn't be updated
+            update_data.pop('user_id', None)
+        except Exception as e:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": f"Invalid request data: {str(e)}"}),
+                status_code=400
+            )
+        
+        # Update folder in database
+        updated_folder = folders_repository.update_folder(folder_id, user_id, update_data)
+        
+        if not updated_folder:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Folder not found"}),
+                status_code=404
+            )
+        
+        # Convert to response format
+        folder_data = updated_folder.dict()
+        serialized_folder = serialize_datetimes(folder_data)
+        
+        return create_cors_response_from_request(
+            req,
+            json.dumps(serialized_folder)
+        )
+        
+    except Exception as e:
+        logger.error(f"Error updating folder: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+@app.route(route="folders/{folder_id}", methods=["DELETE"], auth_level=func.AuthLevel.ANONYMOUS)
+def delete_folder(req: func.HttpRequest) -> func.HttpResponse:
+    """Delete a folder"""
+    logger.info('Delete folder endpoint triggered.')
+    
+    try:
+        folder_id = req.route_params.get('folder_id')
+        user_id = req.params.get('user_id')
+        
+        if not folder_id or not user_id:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "folder_id and user_id are required"}),
+                status_code=400
+            )
+        
+        # Delete folder from database
+        success = folders_repository.delete_folder(folder_id, user_id)
+        
+        if not success:
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Folder not found"}),
+                status_code=404
+            )
+        
+        return create_cors_response_from_request(
+            req,
+            "",
+            status_code=204
+        )
+        
+    except Exception as e:
+        logger.error(f"Error deleting folder: {e}")
+        return create_cors_response_from_request(
+            req,
+            json.dumps({"error": "Internal server error"}),
+            status_code=500
+        )
+
+
+# CORS preflight requests for notes endpoints
+@app.route(route="notes", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def notes_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for notes endpoints"""
+    return create_cors_response_from_request(req, "", status_code=200)
+
+
+@app.route(route="notes/{note_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def note_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for individual note endpoints"""
+    return create_cors_response_from_request(req, "", status_code=200)
+
+
+@app.route(route="folders", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def folders_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for folders endpoints"""
+    return create_cors_response_from_request(req, "", status_code=200)
+
+
+@app.route(route="folders/{folder_id}", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def folder_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for individual folder endpoints"""
     return create_cors_response_from_request(req, "", status_code=200)

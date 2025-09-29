@@ -654,19 +654,168 @@ class UpdateUserProfileRequest(BaseModel):
     billing_address_same_as_contact: Optional[bool] = None
 
 
-# =====================
-# Preview Code Models
-# =====================
+# =============================================
+# NOTES APPLICATION MODELS
+# =============================================
 
+class FileAttachment(BaseModel):
+    """Model for file attachments in notes"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., description="Original filename")
+    size: int = Field(..., description="File size in bytes")
+    type: str = Field(..., description="MIME type (e.g., 'image/png')")
+    data: str = Field(..., description="Base64 encoded file data OR Azure Blob URL")
+    uploaded_at: datetime = Field(default_factory=datetime.now, description="Upload timestamp")
+
+
+class Note(BaseModel):
+    """Model for notes"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    user_id: str = Field(..., description="User ID who owns this note")
+    title: str = Field(..., description="Note title")
+    content: str = Field(..., description="Note body content (markdown)")
+    tags: List[str] = Field(default_factory=list, description="Array of tag strings")
+    is_pinned: bool = Field(default=False, description="Whether note is pinned to top")
+    folder_id: Optional[str] = Field(default=None, description="Parent folder ID (null = root level)")
+    attachments: List[FileAttachment] = Field(default_factory=list, description="Array of file attachments")
+    created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+    updated_at: datetime = Field(default_factory=datetime.now, description="Last update timestamp")
+
+    def to_dict(self):
+        """Convert to dictionary for Cosmos DB storage"""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,  # Cosmos DB partition key
+            "title": self.title,
+            "content": self.content,
+            "tags": self.tags,
+            "isPinned": self.is_pinned,
+            "folderId": self.folder_id,
+            "attachments": [att.dict() for att in self.attachments],
+            "createdAt": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            "updatedAt": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,
+            "_type": "note"  # Document type discriminator
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Create Note instance from Cosmos DB data"""
+        attachments = []
+        if data.get('attachments'):
+            attachments = [FileAttachment(**att) if isinstance(att, dict) else att for att in data['attachments']]
+        
+        return cls(
+            id=data.get('id'),
+            user_id=data.get('user_id'),
+            title=data.get('title', ''),
+            content=data.get('content', ''),
+            tags=data.get('tags', []),
+            is_pinned=data.get('isPinned', False),
+            folder_id=data.get('folderId'),
+            attachments=attachments,
+            created_at=datetime.fromisoformat(data['createdAt'].replace('Z', '+00:00')) if isinstance(data.get('createdAt'), str) else data.get('createdAt', datetime.now()),
+            updated_at=datetime.fromisoformat(data['updatedAt'].replace('Z', '+00:00')) if isinstance(data.get('updatedAt'), str) else data.get('updatedAt', datetime.now())
+        )
+
+
+class Folder(BaseModel):
+    """Model for folders"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    user_id: str = Field(..., description="User ID who owns this folder")
+    name: str = Field(..., description="Folder display name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID (null = root level)")
+    color: str = Field(default="bg-gray-500", description="CSS color class (e.g., 'bg-blue-500')")
+    created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+
+    def to_dict(self):
+        """Convert to dictionary for Cosmos DB storage"""
+        return {
+            "id": self.id,
+            "user_id": self.user_id,  # Cosmos DB partition key
+            "name": self.name,
+            "parentId": self.parent_id,
+            "color": self.color,
+            "createdAt": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            "_type": "folder"  # Document type discriminator
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        """Create Folder instance from Cosmos DB data"""
+        return cls(
+            id=data.get('id'),
+            user_id=data.get('user_id'),
+            name=data.get('name', ''),
+            parent_id=data.get('parentId'),
+            color=data.get('color', 'bg-gray-500'),
+            created_at=datetime.fromisoformat(data['createdAt'].replace('Z', '+00:00')) if isinstance(data.get('createdAt'), str) else data.get('createdAt', datetime.now())
+        )
+
+
+# Request/Response models for Notes API
+
+class CreateNoteRequest(BaseModel):
+    """Request model for creating a note"""
+    title: str = Field(..., description="Note title")
+    content: str = Field(default="", description="Note content (markdown)")
+    tags: List[str] = Field(default_factory=list, description="Array of tag strings")
+    is_pinned: bool = Field(default=False, description="Whether note is pinned")
+    folder_id: Optional[str] = Field(default=None, description="Parent folder ID")
+    attachments: List[FileAttachment] = Field(default_factory=list, description="Array of file attachments")
+
+
+class UpdateNoteRequest(BaseModel):
+    """Request model for updating a note"""
+    title: Optional[str] = Field(default=None, description="Note title")
+    content: Optional[str] = Field(default=None, description="Note content (markdown)")
+    tags: Optional[List[str]] = Field(default=None, description="Array of tag strings")
+    is_pinned: Optional[bool] = Field(default=None, description="Whether note is pinned")
+    folder_id: Optional[str] = Field(default=None, description="Parent folder ID")
+    attachments: Optional[List[FileAttachment]] = Field(default=None, description="Array of file attachments")
+
+
+class CreateFolderRequest(BaseModel):
+    """Request model for creating a folder"""
+    name: str = Field(..., description="Folder display name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID")
+    color: str = Field(default="bg-gray-500", description="CSS color class")
+
+
+class UpdateFolderRequest(BaseModel):
+    """Request model for updating a folder"""
+    name: Optional[str] = Field(default=None, description="Folder display name")
+    parent_id: Optional[str] = Field(default=None, description="Parent folder ID")
+    color: Optional[str] = Field(default=None, description="CSS color class")
+
+
+class TaskFromNoteRequest(BaseModel):
+    """Request model for converting note to task"""
+    title: str = Field(..., description="Task title (from note title)")
+    description: str = Field(..., description="Task description (from note content/selection)")
+    note_id: str = Field(..., description="Reference to source note")
+    url: str = Field(..., description="Deep link back to note")
+
+
+class NotesListResponse(BaseModel):
+    """Response model for listing notes"""
+    notes: List[Note] = Field(..., description="Array of notes")
+
+
+class FoldersListResponse(BaseModel):
+    """Response model for listing folders"""
+    folders: List[Folder] = Field(..., description="Array of folders")
+
+
+# Preview Code Validation Models
 class PreviewCodeValidationRequest(BaseModel):
     """Request model for preview code validation"""
     code: str = Field(..., description="Preview code to validate")
-    user_id: str = Field(..., description="User ID attempting to use the code")
+    user_id: str = Field(..., description="User ID requesting validation")
 
 
 class PreviewCodeValidationResponse(BaseModel):
     """Response model for preview code validation"""
     valid: bool = Field(..., description="Whether the code is valid")
-    message: str = Field(..., description="Human-readable message")
+    message: str = Field(..., description="Validation message")
     error: Optional[str] = Field(default=None, description="Error code if validation failed")
-    code_id: Optional[str] = Field(default=None, description="Preview code ID if valid")
+    code_id: Optional[str] = Field(default=None, description="Code ID if validation succeeded")

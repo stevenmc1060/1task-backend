@@ -24,6 +24,8 @@ class CosmosDBConfig:
         self.tasks_container_name = os.getenv('COSMOS_CONTAINER_NAME', 'tasks')
         self.profiles_container_name = os.getenv('COSMOS_PROFILES_CONTAINER_NAME', 'user-profiles')
         self.preview_codes_container_name = os.getenv('COSMOS_PREVIEW_CODES_CONTAINER_NAME', 'preview-codes')
+        self.notes_container_name = os.getenv('COSMOS_NOTES_CONTAINER_NAME', 'notes')
+        self.folders_container_name = os.getenv('COSMOS_FOLDERS_CONTAINER_NAME', 'folders')
         
         if not self.endpoint or not self.key:
             raise ValueError("COSMOS_ENDPOINT and COSMOS_KEY environment variables must be set")
@@ -39,6 +41,8 @@ class CosmosDBManager:
         self.tasks_container: Optional[ContainerProxy] = None
         self.profiles_container: Optional[ContainerProxy] = None
         self.preview_codes_container: Optional[ContainerProxy] = None
+        self.notes_container: Optional[ContainerProxy] = None
+        self.folders_container: Optional[ContainerProxy] = None
         
     def initialize(self):
         """Initialize CosmosDB client, database, and containers"""
@@ -60,6 +64,12 @@ class CosmosDBManager:
             
             self.preview_codes_container = self._create_preview_codes_container_if_not_exists()
             logger.info(f"Preview codes container '{self.config.preview_codes_container_name}' ready")
+            
+            self.notes_container = self._create_notes_container_if_not_exists()
+            logger.info(f"Notes container '{self.config.notes_container_name}' ready")
+            
+            self.folders_container = self._create_folders_container_if_not_exists()
+            logger.info(f"Folders container '{self.config.folders_container_name}' ready")
             
         except Exception as e:
             logger.error(f"Failed to initialize CosmosDB: {e}")
@@ -118,6 +128,34 @@ class CosmosDBManager:
         
         return container
     
+    def _create_notes_container_if_not_exists(self) -> ContainerProxy:
+        """Create notes container if it doesn't exist"""
+        try:
+            container = self.database.create_container(
+                id=self.config.notes_container_name,
+                partition_key={'paths': ['/user_id'], 'kind': 'Hash'}
+            )
+            logger.info(f"Created notes container: {self.config.notes_container_name}")
+        except CosmosResourceExistsError:
+            container = self.database.get_container_client(self.config.notes_container_name)
+            logger.info(f"Using existing notes container: {self.config.notes_container_name}")
+        
+        return container
+    
+    def _create_folders_container_if_not_exists(self) -> ContainerProxy:
+        """Create folders container if it doesn't exist"""
+        try:
+            container = self.database.create_container(
+                id=self.config.folders_container_name,
+                partition_key={'paths': ['/user_id'], 'kind': 'Hash'}
+            )
+            logger.info(f"Created folders container: {self.config.folders_container_name}")
+        except CosmosResourceExistsError:
+            container = self.database.get_container_client(self.config.folders_container_name)
+            logger.info(f"Using existing folders container: {self.config.folders_container_name}")
+        
+        return container
+    
     def get_tasks_container(self) -> ContainerProxy:
         """Get the tasks container instance"""
         if not self.tasks_container:
@@ -135,6 +173,18 @@ class CosmosDBManager:
         if not self.preview_codes_container:
             self.initialize()
         return self.preview_codes_container
+    
+    def get_notes_container(self) -> ContainerProxy:
+        """Get the notes container instance"""
+        if not self.notes_container:
+            self.initialize()
+        return self.notes_container
+    
+    def get_folders_container(self) -> ContainerProxy:
+        """Get the folders container instance"""
+        if not self.folders_container:
+            self.initialize()
+        return self.folders_container
 
 
 # Global instance
