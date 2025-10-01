@@ -47,7 +47,9 @@ def create_cors_response(body: str, status_code: int = 200, mimetype: str = "app
     # Allowed origins for CORS
     allowed_origins = [
         "http://localhost:8080",
+        "http://localhost:5173",  # Vite dev server
         "http://127.0.0.1:8080",
+        "http://127.0.0.1:5173",  # Vite dev server alternate
         "https://polite-field-04b5c2a10.1.azurestaticapps.net",
         "https://polite-field-04b5c2a10-preview.centralus.1.azurestaticapps.net",
         "https://agreeable-rock-0ec903610-preview.centralus.1.azurestaticapps.net"
@@ -1623,7 +1625,11 @@ def update_note(req: func.HttpRequest) -> func.HttpResponse:
         note_id = req.route_params.get('note_id')
         req_body = req.get_json()
         
+        logger.info(f"PATCH request for note_id: {note_id}")
+        logger.info(f"Request body keys: {list(req_body.keys()) if req_body else 'None'}")
+        
         if not note_id or not req_body:
+            logger.warning(f"Missing required data - note_id: {note_id}, req_body: {bool(req_body)}")
             return create_cors_response_from_request(
                 req,
                 json.dumps({"error": "note_id and request body are required"}),
@@ -1632,11 +1638,14 @@ def update_note(req: func.HttpRequest) -> func.HttpResponse:
         
         user_id = req_body.get('user_id')
         if not user_id:
+            logger.warning("Missing user_id in request body")
             return create_cors_response_from_request(
                 req,
                 json.dumps({"error": "user_id is required"}),
                 status_code=400
             )
+        
+        logger.info(f"Updating note {note_id} for user {user_id}")
         
         # Parse request using Pydantic model
         try:
@@ -1644,7 +1653,9 @@ def update_note(req: func.HttpRequest) -> func.HttpResponse:
             update_data = update_request.dict(exclude_unset=True)
             # Remove user_id from update data as it shouldn't be updated
             update_data.pop('user_id', None)
+            logger.info(f"Update data fields: {list(update_data.keys())}")
         except Exception as e:
+            logger.error(f"Pydantic validation error: {str(e)}")
             return create_cors_response_from_request(
                 req,
                 json.dumps({"error": f"Invalid request data: {str(e)}"}),
@@ -1652,9 +1663,18 @@ def update_note(req: func.HttpRequest) -> func.HttpResponse:
             )
         
         # Update note in database
-        updated_note = notes_repository.update_note(note_id, user_id, update_data)
+        try:
+            updated_note = notes_repository.update_note(note_id, user_id, update_data)
+        except Exception as e:
+            logger.error(f"Repository update error: {str(e)}")
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": f"Database update failed: {str(e)}"}),
+                status_code=500
+            )
         
         if not updated_note:
+            logger.warning(f"Note not found or update failed: {note_id}")
             return create_cors_response_from_request(
                 req,
                 json.dumps({"error": "Note not found"}),
@@ -1662,16 +1682,25 @@ def update_note(req: func.HttpRequest) -> func.HttpResponse:
             )
         
         # Convert to response format
-        note_data = updated_note.dict()
-        serialized_note = serialize_datetimes(note_data)
-        
-        return create_cors_response_from_request(
-            req,
-            json.dumps(serialized_note)
-        )
+        try:
+            note_data = updated_note.dict()
+            serialized_note = serialize_datetimes(note_data)
+            logger.info(f"Successfully updated note {note_id}")
+            
+            return create_cors_response_from_request(
+                req,
+                json.dumps(serialized_note)
+            )
+        except Exception as e:
+            logger.error(f"Response serialization error: {str(e)}")
+            return create_cors_response_from_request(
+                req,
+                json.dumps({"error": "Response serialization failed"}),
+                status_code=500
+            )
         
     except Exception as e:
-        logger.error(f"Error updating note: {e}")
+        logger.error(f"Unexpected error updating note: {str(e)}", exc_info=True)
         return create_cors_response_from_request(
             req,
             json.dumps({"error": "Internal server error"}),

@@ -112,29 +112,36 @@ class NotesRepository:
             # First get the existing note
             existing_note = self.get_note(note_id, user_id)
             if not existing_note:
+                logger.warning(f"Note not found for update: {note_id}, user_id: {user_id}")
                 return None
             
-            # Update the note data
-            updated_data = existing_note.dict()
-            updated_data.update(note_data)
-            updated_data['updated_at'] = datetime.utcnow()
+            # Create updated note object
+            updated_note_dict = existing_note.dict()
+            updated_note_dict.update(note_data)
+            updated_note_dict['updated_at'] = datetime.utcnow()
+            
+            # Create a new Note object to validate the data
+            updated_note = Note(**updated_note_dict)
             
             container = self._get_container()
+            
+            # Convert to storage format using the Note model's to_dict method
+            storage_data = updated_note.to_dict()
             
             # Replace the document
             response = container.replace_item(
                 item=note_id,
-                body=updated_data
+                body=storage_data
             )
             
             logger.info(f"Updated note with ID: {note_id}")
             return Note.from_dict(response)
             
         except CosmosResourceNotFoundError:
-            logger.info(f"Note not found for update: {note_id}")
+            logger.warning(f"Note not found for update: {note_id}")
             return None
         except Exception as e:
-            logger.error(f"Error updating note: {e}")
+            logger.error(f"Error updating note {note_id}: {str(e)}")
             raise
     
     def delete_note(self, note_id: str, user_id: str) -> bool:
