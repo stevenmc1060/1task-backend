@@ -317,6 +317,7 @@ class CreateYearlyGoalRequest(BaseModel):
     """Request model for creating a yearly goal"""
     title: str
     description: Optional[str] = None
+    status: Optional[GoalStatus] = None
     target_year: int
     life_area: Optional[LifeArea] = None
     key_metrics: List[str] = Field(default_factory=list)
@@ -327,6 +328,7 @@ class CreateQuarterlyGoalRequest(BaseModel):
     """Request model for creating a quarterly goal"""
     title: str
     description: Optional[str] = None
+    status: Optional[GoalStatus] = None
     target_year: int
     target_quarter: int
     life_area: Optional[LifeArea] = None
@@ -339,6 +341,7 @@ class CreateWeeklyGoalRequest(BaseModel):
     """Request model for creating a weekly goal"""
     title: str
     description: Optional[str] = None
+    status: Optional[GoalStatus] = None
     week_start_date: date
     life_area: Optional[LifeArea] = None
     key_metrics: List[str] = Field(default_factory=list)
@@ -372,6 +375,7 @@ class CreateProjectRequest(BaseModel):
     """Request model for creating a project"""
     title: str
     description: Optional[str] = None
+    status: Optional[ProjectStatus] = None
     priority: TaskPriority = TaskPriority.MEDIUM
     life_area: Optional[LifeArea] = None
     start_date: Optional[date] = None
@@ -386,6 +390,7 @@ class CreateTaskRequest(BaseModel):
     """Request model for creating a new task"""
     title: str
     description: Optional[str] = None
+    status: Optional[TaskStatus] = None
     priority: TaskPriority = TaskPriority.MEDIUM
     life_area: Optional[LifeArea] = None
     due_date: Optional[datetime] = None
