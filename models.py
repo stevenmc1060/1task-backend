@@ -165,8 +165,8 @@ class BaseDocument(BaseModel):
     def from_cosmos_dict(cls, data: dict) -> 'BaseDocument':
         """Create document instance from CosmosDB document"""
         # Convert ISO strings back to datetime/date objects
-        datetime_fields = ['created_at', 'updated_at', 'completed_at', 'due_date', 'start_date', 'end_date', 'last_completed_at']
-        date_fields = ['target_date', 'week_start_date']
+        datetime_fields = ['created_at', 'updated_at', 'completed_at', 'due_date', 'last_completed_at']
+        date_fields = ['target_date', 'week_start_date', 'start_date', 'end_date']
         
         for field in datetime_fields:
             if data.get(field) and isinstance(data[field], str):

@@ -150,7 +150,7 @@ class GenericRepository:
             for key, value in updates.items():
                 if value is not None:
                     # Handle datetime fields specially
-                    if key in ['completed_at', 'due_date', 'start_date', 'end_date', 'created_at', 'updated_at']:
+                    if key in ['completed_at', 'due_date', 'created_at', 'updated_at', 'last_completed_at']:
                         if isinstance(value, str):
                             # Parse datetime string and convert to ISO format
                             try:
@@ -168,15 +168,19 @@ class GenericRepository:
                             existing_item[key] = value.isoformat()
                         else:
                             existing_item[key] = value
-                    elif key in ['target_date', 'week_start_date']:
+                    elif key in ['target_date', 'week_start_date', 'start_date', 'end_date']:
                         # Handle date fields
                         if isinstance(value, str):
                             try:
+                                # Parse and validate the date, then store as string
                                 parsed_date = datetime.fromisoformat(value).date()
                                 existing_item[key] = parsed_date.isoformat()
                             except ValueError as e:
                                 logger.error(f"Error parsing date field {key} with value {value}: {e}")
                                 raise ValueError(f"Invalid date format for field {key}: {value}")
+                        elif isinstance(value, date):
+                            # If it's already a date object, convert to string
+                            existing_item[key] = value.isoformat()
                         else:
                             existing_item[key] = value
                     else:

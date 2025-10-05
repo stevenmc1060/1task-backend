@@ -37,6 +37,8 @@ def serialize_datetimes(obj):
         return [serialize_datetimes(i) for i in obj]
     elif isinstance(obj, datetime.datetime):
         return obj.isoformat()
+    elif isinstance(obj, datetime.date):
+        return obj.isoformat()
     else:
         return obj
 
@@ -187,8 +189,10 @@ def create_task(req: func.HttpRequest) -> func.HttpResponse:
         task = Task(**create_request.model_dump())
         created_task = generic_repository.create_document(task)
         
+        # Serialize the response to handle date/datetime objects
+        response_data = serialize_datetimes(created_task.model_dump())
         return create_cors_response(
-            json.dumps(created_task.model_dump(), default=str),
+            json.dumps(response_data),
             status_code=201
         )
         
@@ -296,8 +300,10 @@ def update_task(req: func.HttpRequest) -> func.HttpResponse:
                 mimetype="application/json"
             )
         
+        # Serialize the response to handle date/datetime objects
+        response_data = serialize_datetimes(updated_task.model_dump())
         return create_cors_response(
-            json.dumps(updated_task.model_dump(), default=str),
+            json.dumps(response_data),
             status_code=200,
             mimetype="application/json"
         )
@@ -896,9 +902,9 @@ def get_projects(req: func.HttpRequest) -> func.HttpResponse:
             return create_cors_response(json.dumps({"error": "user_id parameter is required"}), status_code=400)
         
         projects = generic_repository.get_documents_by_user_and_type(user_id, DocumentType.PROJECT, Project)
-        projects_data = [project.model_dump() for project in projects]
+        projects_data = [project.model_dump(mode='json') for project in projects]
         
-        return create_cors_response(json.dumps(projects_data, default=str))
+        return create_cors_response(json.dumps(projects_data))
     except Exception as e:
         logger.error(f"Error in get_projects: {e}")
         return create_cors_response(json.dumps({"error": "Internal server error"}), status_code=500)
@@ -913,7 +919,8 @@ def create_project(req: func.HttpRequest) -> func.HttpResponse:
         project = Project(**create_request.model_dump())
         created_project = generic_repository.create_document(project)
         
-        return create_cors_response(json.dumps(created_project.model_dump(), default=str), status_code=201)
+        # Use Pydantic's direct JSON serialization to handle dates properly
+        return create_cors_response(created_project.model_dump_json(), status_code=201)
     except Exception as e:
         logger.error(f"Error in create_project: {e}")
         return create_cors_response(json.dumps({"error": str(e)}), status_code=400)
@@ -932,11 +939,17 @@ def update_project(req: func.HttpRequest) -> func.HttpResponse:
         update_request = UpdateProjectRequest(**req_body)
         updates = {k: v for k, v in update_request.model_dump().items() if v is not None}
         
-        updated_project = generic_repository.update_document(project_id, user_id, updates, Project)
-        if not updated_project:
-            return create_cors_response(json.dumps({"error": "Project not found"}), status_code=404)
-        
-        return create_cors_response(json.dumps(updated_project.model_dump(), default=str))
+        try:
+            updated_project = generic_repository.update_document(project_id, user_id, updates, Project)
+            if not updated_project:
+                return create_cors_response(json.dumps({"error": "Project not found"}), status_code=404)
+            
+            # Use Pydantic's model_dump_json() for proper serialization
+            response_json = updated_project.model_dump_json()
+            return create_cors_response(response_json)
+        except Exception as repo_error:
+            logger.error(f"Repository error: {type(repo_error)} - {repo_error}")
+            return create_cors_response(json.dumps({"error": f"Repository error: {str(repo_error)}"}), status_code=500)
     except Exception as e:
         logger.error(f"Error in update_project: {e}")
         return create_cors_response(json.dumps({"error": str(e)}), status_code=400)
