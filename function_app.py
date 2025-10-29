@@ -14,6 +14,8 @@ from models import (
     ChatSession, ChatMessage, ChatMessageRole,
     DocumentType,
     PreviewCodeValidationRequest, PreviewCodeValidationResponse,
+    BulkLoadPreviewCodesRequest, BulkLoadPreviewCodesResponse,
+    ResetPreviewCodesRequest, ResetPreviewCodesResponse, PreviewCodeStatsResponse,
     # Notes application models
     Note, Folder, FileAttachment,
     CreateNoteRequest, UpdateNoteRequest, NotesListResponse,
@@ -1113,8 +1115,16 @@ def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
     try:
         stats = preview_code_repo.get_preview_code_stats()
         
+        response = PreviewCodeStatsResponse(
+            total_codes=stats["total_codes"],
+            used_codes=stats["used_codes"],
+            unused_codes=stats["unused_codes"],
+            success_rate=stats["success_rate"],
+            last_updated=stats["last_updated"]
+        )
+        
         return create_cors_response(
-            json.dumps(serialize_datetimes(stats)),
+            response.model_dump_json(),
             origin=req.headers.get('Origin')
         )
         
@@ -1122,6 +1132,163 @@ def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
         logger.error(f"Error getting preview code stats: {e}")
         return create_cors_response(
             json.dumps({"error": "Failed to get preview code statistics"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="preview-codes/bulk-load", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def bulk_load_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+    """Bulk load preview codes (admin endpoint)"""
+    try:
+        request_data = req.get_json()
+        if not request_data:
+            return create_cors_response(
+                json.dumps({
+                    "success": False,
+                    "message": "Request body is required",
+                    "error": "MISSING_BODY"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        bulk_request = BulkLoadPreviewCodesRequest(**request_data)
+        
+        if not bulk_request.codes:
+            return create_cors_response(
+                json.dumps({
+                    "success": False,
+                    "message": "Codes array is required and must not be empty",
+                    "error": "INVALID_INPUT"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        loaded_count = 0
+        skipped_count = 0
+        errors = []
+        
+        for code in bulk_request.codes:
+            try:
+                normalized_code = code.strip().upper()
+                if not normalized_code:
+                    errors.append(f"Empty or invalid code: '{code}'")
+                    continue
+                
+                # Check if code already exists
+                existing_code = preview_code_repo.get_preview_code(normalized_code)
+                
+                if existing_code and not bulk_request.replace_existing:
+                    skipped_count += 1
+                    continue
+                
+                # Create or replace the code
+                if existing_code and bulk_request.replace_existing:
+                    # Delete existing and recreate
+                    preview_code_repo.container.delete_item(
+                        item=normalized_code,
+                        partition_key=normalized_code
+                    )
+                
+                preview_code_repo.create_preview_code(normalized_code)
+                loaded_count += 1
+                
+            except Exception as e:
+                errors.append(f"Error processing code '{code}': {str(e)}")
+        
+        response = BulkLoadPreviewCodesResponse(
+            success=True,
+            loaded_count=loaded_count,
+            skipped_count=skipped_count,
+            errors=errors if errors else None,
+            message=f"Successfully loaded {loaded_count} codes, skipped {skipped_count}"
+        )
+        
+        return create_cors_response(
+            response.model_dump_json(),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error bulk loading preview codes: {e}")
+        return create_cors_response(
+            json.dumps({
+                "success": False,
+                "message": "Internal server error during bulk load",
+                "error": "SERVER_ERROR"
+            }),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="preview-codes/reset", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+    """Reset preview codes (admin endpoint)"""
+    try:
+        request_data = req.get_json()
+        if not request_data:
+            return create_cors_response(
+                json.dumps({
+                    "success": False,
+                    "message": "Request body is required",
+                    "error": "MISSING_BODY"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        reset_request = ResetPreviewCodesRequest(**request_data)
+        
+        if not reset_request.confirm:
+            return create_cors_response(
+                json.dumps({
+                    "success": False,
+                    "message": "Confirmation required for reset operation",
+                    "error": "CONFIRMATION_REQUIRED"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        if reset_request.reset_type not in ["mark_unused", "delete_all"]:
+            return create_cors_response(
+                json.dumps({
+                    "success": False,
+                    "message": "Invalid reset_type. Must be 'mark_unused' or 'delete_all'",
+                    "error": "INVALID_RESET_TYPE"
+                }),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Perform the reset operation
+        reset_result = preview_code_repo.reset_preview_codes(reset_request.reset_type)
+        
+        response = ResetPreviewCodesResponse(
+            success=reset_result["success"],
+            affected_count=reset_result["affected_count"],
+            message=reset_result["message"]
+        )
+        
+        status_code = 200 if reset_result["success"] else 500
+        
+        return create_cors_response(
+            response.model_dump_json(),
+            status_code=status_code,
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error resetting preview codes: {e}")
+        return create_cors_response(
+            json.dumps({
+                "success": False,
+                "affected_count": 0,
+                "message": f"Reset failed: {str(e)}"
+            }),
             status_code=500,
             origin=req.headers.get('Origin')
         )
@@ -1882,6 +2049,7 @@ def update_folder(req: func.HttpRequest) -> func.HttpResponse:
             )
         
         user_id = req_body.get('user_id')
+
         if not user_id:
             return create_cors_response_from_request(
                 req,

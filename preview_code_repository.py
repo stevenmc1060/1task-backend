@@ -167,6 +167,64 @@ class PreviewCodeRepository:
         logger.info(f"Bulk created {len(created_codes)} preview codes")
         return created_codes
 
+    def reset_preview_codes(self, reset_type: str = "mark_unused") -> dict:
+        """Reset preview codes - either mark all as unused or delete all"""
+        try:
+            all_codes = self.get_all_preview_codes()
+            affected_count = 0
+            
+            if reset_type == "delete_all":
+                for preview_code in all_codes:
+                    try:
+                        self.container.delete_item(
+                            item=preview_code.code,
+                            partition_key=preview_code.code
+                        )
+                        affected_count += 1
+                    except Exception as e:
+                        logger.error(f"Error deleting preview code {preview_code.code}: {e}")
+                        continue
+                        
+                message = f"Deleted {affected_count} preview codes"
+                
+            else:  # mark_unused
+                for preview_code in all_codes:
+                    if preview_code.is_used:
+                        try:
+                            # Reset the code to unused state
+                            preview_code.is_used = False
+                            preview_code.used_by_user_id = None
+                            preview_code.used_at = None
+                            preview_code.updated_at = datetime.utcnow()
+                            
+                            # Save to database
+                            code_dict = preview_code.to_cosmos_dict()
+                            self.container.replace_item(
+                                item=preview_code.code,
+                                body=code_dict
+                            )
+                            affected_count += 1
+                        except Exception as e:
+                            logger.error(f"Error resetting preview code {preview_code.code}: {e}")
+                            continue
+                            
+                message = f"Reset {affected_count} preview codes to unused state"
+            
+            logger.info(f"Preview code reset completed: {message}")
+            return {
+                "success": True,
+                "affected_count": affected_count,
+                "message": message
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during preview code reset: {e}")
+            return {
+                "success": False,
+                "affected_count": 0,
+                "message": f"Reset failed: {str(e)}"
+            }
+
 
 # Global instance
 preview_code_repo = PreviewCodeRepository()
