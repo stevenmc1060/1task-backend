@@ -96,7 +96,7 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-@app.route(route="health", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+@app.route(route="health-options", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def health_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for health endpoint"""
     return create_cors_response_from_request(req, "", status_code=200)
@@ -1127,8 +1127,8 @@ def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="admin/preview-codes/bulk-load", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def bulk_load_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="bulk_load_codes", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def bulk_load_codes(req: func.HttpRequest) -> func.HttpResponse:
     """Bulk load preview codes (admin endpoint)"""
     try:
         # Get request body
@@ -1181,8 +1181,8 @@ def bulk_load_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="admin/preview-codes/reset", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def reset_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="reset_codes", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_codes(req: func.HttpRequest) -> func.HttpResponse:
     """Reset all preview codes to unused state (admin endpoint)"""
     try:
         # Reset all preview codes
@@ -1213,14 +1213,14 @@ def reset_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="admin/preview-codes/bulk-load", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def bulk_load_preview_codes_options(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="bulk_load_codes", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def bulk_load_codes_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for bulk load endpoint"""
     return create_cors_response_from_request(req, "")
 
 
-@app.route(route="admin/preview-codes/reset", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def reset_preview_codes_options(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="reset_codes", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_codes_options(req: func.HttpRequest) -> func.HttpResponse:
     """Handle CORS preflight requests for reset endpoint"""
     return create_cors_response_from_request(req, "")
 
