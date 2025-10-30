@@ -167,6 +167,46 @@ class PreviewCodeRepository:
         logger.info(f"Bulk created {len(created_codes)} preview codes")
         return created_codes
 
+    def reset_all_preview_codes(self) -> dict:
+        """Reset all preview codes to unused state (admin function)"""
+        try:
+            all_codes = self.get_all_preview_codes()
+            reset_count = 0
+            errors = []
+            
+            for preview_code in all_codes:
+                try:
+                    if preview_code.is_used:
+                        # Reset the code to unused state
+                        preview_code.is_used = False
+                        preview_code.used_by_user_id = None
+                        preview_code.used_at = None
+                        preview_code.updated_at = datetime.utcnow()
+                        
+                        # Update in database
+                        code_dict = preview_code.to_cosmos_dict()
+                        self.container.replace_item(item=preview_code.code, body=code_dict)
+                        reset_count += 1
+                except Exception as e:
+                    errors.append(f"Error resetting code {preview_code.code}: {e}")
+                    continue
+            
+            result = {
+                "reset_count": reset_count,
+                "total_codes": len(all_codes),
+                "errors": errors
+            }
+            
+            if errors:
+                logger.warning(f"Errors during reset: {errors}")
+            
+            logger.info(f"Reset {reset_count} preview codes")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error resetting preview codes: {e}")
+            raise
+
 
 # Global instance
 preview_code_repo = PreviewCodeRepository()

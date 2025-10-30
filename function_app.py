@@ -1127,6 +1127,116 @@ def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
+@app.route(route="admin/preview-codes/bulk-load", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def bulk_load_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+    """Bulk load preview codes (admin endpoint)"""
+    try:
+        # Get request body
+        request_data = req.get_json()
+        if not request_data or 'codes' not in request_data:
+            return create_cors_response(
+                json.dumps({"error": "Request body must contain 'codes' array"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        codes = request_data['codes']
+        if not isinstance(codes, list) or not codes:
+            return create_cors_response(
+                json.dumps({"error": "Codes must be a non-empty array"}),
+                status_code=400,
+                origin=req.headers.get('Origin')
+            )
+        
+        # Validate codes are strings and normalize them
+        normalized_codes = []
+        for code in codes:
+            if not isinstance(code, str) or not code.strip():
+                return create_cors_response(
+                    json.dumps({"error": "All codes must be non-empty strings"}),
+                    status_code=400,
+                    origin=req.headers.get('Origin')
+                )
+            normalized_codes.append(code.strip().upper())
+        
+        # Bulk create preview codes
+        created_codes = preview_code_repo.bulk_create_preview_codes(normalized_codes)
+        
+        return create_cors_response(
+            json.dumps({
+                "message": f"Successfully loaded {len(created_codes)} preview codes",
+                "loaded_count": len(created_codes),
+                "total_requested": len(normalized_codes)
+            }),
+            status_code=201,
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error bulk loading preview codes: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Failed to bulk load preview codes"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="admin/preview-codes/reset", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+    """Reset all preview codes to unused state (admin endpoint)"""
+    try:
+        # Reset all preview codes
+        result = preview_code_repo.reset_all_preview_codes()
+        
+        response_data = {
+            "message": f"Successfully reset {result['reset_count']} preview codes",
+            "reset_count": result['reset_count'],
+            "total_codes": result['total_codes']
+        }
+        
+        # Include errors if any occurred
+        if result['errors']:
+            response_data['warnings'] = result['errors']
+        
+        return create_cors_response(
+            json.dumps(response_data),
+            status_code=200,
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"Error resetting preview codes: {e}")
+        return create_cors_response(
+            json.dumps({"error": "Failed to reset preview codes"}),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="admin/preview-codes/bulk-load", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def bulk_load_preview_codes_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for bulk load endpoint"""
+    return create_cors_response_from_request(req, "")
+
+
+@app.route(route="admin/preview-codes/reset", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def reset_preview_codes_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for reset endpoint"""
+    return create_cors_response_from_request(req, "")
+
+
+@app.route(route="preview-codes/validate", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def validate_preview_code_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for validate endpoint"""
+    return create_cors_response_from_request(req, "")
+
+
+@app.route(route="preview-codes/stats", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
+def get_preview_code_stats_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for stats endpoint"""
+    return create_cors_response_from_request(req, "")
+
+
 # =====================
 # User Profile API Endpoints
 # =====================
