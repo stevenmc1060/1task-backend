@@ -252,6 +252,122 @@ Notes are stored with these field mappings:
 - Track file size for storage management
 - Generate unique IDs for each attachment
 
+## Notes Implementation Details
+
+### Backend Data Storage
+The notes backend uses CosmosDB with specific field mappings and requirements:
+
+#### Required Fields for Note Creation
+```json
+{
+  "user_id": "string (required - partition key)",
+  "title": "string (required - cannot be empty)"
+}
+```
+
+#### Optional Fields with Defaults
+```json
+{
+  "content": "string (default: '' - empty string)",
+  "tags": ["array of strings (default: [])"],
+  "is_pinned": "boolean (default: false)",
+  "folder_id": "string or null (default: null - root level)",
+  "attachments": ["array of FileAttachment objects (default: [])"]
+}
+```
+
+#### Auto-Generated Fields
+```json
+{
+  "id": "UUID string (auto-generated if not provided)",
+  "created_at": "ISO datetime string (auto-set to UTC now)",
+  "updated_at": "ISO datetime string (auto-updated on changes)",
+  "document_type": "note (automatically added)"
+}
+```
+
+### File Attachment Structure
+When including file attachments, each attachment must have:
+
+```json
+{
+  "id": "string (UUID - auto-generated if not provided)",
+  "name": "string (required - original filename)",
+  "size": "integer (required - file size in bytes)",
+  "type": "string (required - MIME type like 'image/png')",
+  "data": "string (required - base64 encoded data OR Azure Blob URL)",
+  "uploaded_at": "datetime (auto-generated if not provided)"
+}
+```
+
+#### Example File Attachment
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "screenshot.png",
+  "size": 1048576,
+  "type": "image/png",
+  "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "uploaded_at": "2025-10-05T12:34:56.789Z"
+}
+```
+
+### Cosmos DB Field Mapping
+The backend automatically converts between API field names and Cosmos DB storage:
+
+**API Field Name** → **Cosmos DB Field Name**
+- `is_pinned` → `isPinned`
+- `folder_id` → `folderId`
+- `created_at` → `createdAt`
+- `updated_at` → `updatedAt`
+- `parent_id` → `parentId` (for folders)
+- Adds `_type: "note"` or `_type: "folder"` discriminator
+
+### Content Handling
+- **Content Type**: Markdown format expected
+- **Empty Content**: Allowed (defaults to empty string)
+- **Size Limits**: No explicit limit enforced (CosmosDB document limit applies)
+- **Sanitization**: No automatic sanitization (handle XSS prevention on frontend)
+
+### Tag System
+- **Format**: Array of strings
+- **Case Sensitivity**: Preserved as entered
+- **Duplicates**: Not automatically removed
+- **Search**: Case-insensitive search across all tags
+
+### Folder Organization
+- **Root Level**: `folder_id: null` or omit field
+- **Nested Folders**: Use parent folder's ID as `folder_id`
+- **Orphaned Notes**: If folder is deleted, notes remain with invalid `folder_id`
+- **Validation**: No automatic folder existence validation
+
+### Search Functionality
+The search implementation supports:
+- **Title Search**: Case-insensitive partial matching
+- **Content Search**: Case-insensitive partial matching in markdown content
+- **Tag Search**: Exact tag name matching (case-insensitive)
+- **Combined Search**: Searches across title, content, and tags simultaneously
+
+### Update Behavior
+- **Partial Updates**: Only provided fields are updated
+- **Null Values**: Setting `folder_id: null` moves note to root level
+- **Array Fields**: Complete replacement (not merge)
+- **Timestamps**: `updated_at` automatically updated on any change
+
+### Error Conditions
+The backend will return errors for:
+- Missing `user_id` in any request
+- Missing `title` when creating notes
+- Invalid JSON in request body
+- Non-existent note IDs for updates/deletes
+- Malformed file attachment objects
+
+### Performance Considerations
+- **Partition Key**: Always include `user_id` for optimal Cosmos DB performance
+- **Batch Operations**: Not currently supported (create/update one note at a time)
+- **Large Attachments**: Consider Azure Blob Storage URLs instead of base64 for files > 1MB
+- **Search Performance**: No indexing beyond Cosmos DB defaults
+
 ## Implementation Examples
 
 ### JavaScript/TypeScript Client
