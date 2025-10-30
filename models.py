@@ -861,3 +861,19 @@ class PreviewCodeStatsResponse(BaseModel):
     unused_codes: int = Field(..., description="Number of unused codes")
     success_rate: float = Field(..., description="Percentage of codes used")
     last_updated: str = Field(..., description="Timestamp of stats generation")
+
+
+class PreviewCodeListItem(BaseModel):
+    """Individual preview code item for admin list"""
+    code: str = Field(..., description="The preview code")
+    is_used: bool = Field(..., description="Whether the code has been used")
+    used_by: Optional[str] = Field(default=None, description="User ID who used this code")
+    used_at: Optional[str] = Field(default=None, description="ISO timestamp when code was used")
+    created_at: str = Field(..., description="ISO timestamp when code was created")
+
+
+class PreviewCodeListResponse(BaseModel):
+    """Response model for admin preview code list"""
+    success: bool = Field(..., description="Whether the operation was successful")
+    codes: List[PreviewCodeListItem] = Field(..., description="List of preview codes")
+    error: Optional[str] = Field(default=None, description="Error message if any")

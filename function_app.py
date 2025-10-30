@@ -14,6 +14,7 @@ from models import (
     ChatSession, ChatMessage, ChatMessageRole,
     DocumentType,
     PreviewCodeValidationRequest, PreviewCodeValidationResponse,
+    PreviewCodeListResponse, PreviewCodeListItem,
     # Notes application models
     Note, Folder, FileAttachment,
     CreateNoteRequest, UpdateNoteRequest, NotesListResponse,
@@ -1107,336 +1108,70 @@ def validate_preview_code(req: func.HttpRequest) -> func.HttpResponse:
         )
 
 
-@app.route(route="preview-codes/stats", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
-def get_preview_code_stats(req: func.HttpRequest) -> func.HttpResponse:
-    """Get preview code usage statistics (admin endpoint)"""
-    try:
-        stats = preview_code_repo.get_preview_code_stats()
-        
-        return create_cors_response(
-            json.dumps(serialize_datetimes(stats)),
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logger.error(f"Error getting preview code stats: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Failed to get preview code statistics"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="bulk_load_codes", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def bulk_load_codes(req: func.HttpRequest) -> func.HttpResponse:
-    """Bulk load preview codes (admin endpoint)"""
-    try:
-        # Get request body
-        request_data = req.get_json()
-        if not request_data or 'codes' not in request_data:
-            return create_cors_response(
-                json.dumps({"error": "Request body must contain 'codes' array"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        codes = request_data['codes']
-        if not isinstance(codes, list) or not codes:
-            return create_cors_response(
-                json.dumps({"error": "Codes must be a non-empty array"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Validate codes are strings and normalize them
-        normalized_codes = []
-        for code in codes:
-            if not isinstance(code, str) or not code.strip():
-                return create_cors_response(
-                    json.dumps({"error": "All codes must be non-empty strings"}),
-                    status_code=400,
-                    origin=req.headers.get('Origin')
-                )
-            normalized_codes.append(code.strip().upper())
-        
-        # Bulk create preview codes
-        created_codes = preview_code_repo.bulk_create_preview_codes(normalized_codes)
-        
-        return create_cors_response(
-            json.dumps({
-                "message": f"Successfully loaded {len(created_codes)} preview codes",
-                "loaded_count": len(created_codes),
-                "total_requested": len(normalized_codes)
-            }),
-            status_code=201,
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logger.error(f"Error bulk loading preview codes: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Failed to bulk load preview codes"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="reset_codes", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def reset_codes(req: func.HttpRequest) -> func.HttpResponse:
-    """Reset all preview codes to unused state (admin endpoint)"""
-    try:
-        # Reset all preview codes
-        result = preview_code_repo.reset_all_preview_codes()
-        
-        response_data = {
-            "message": f"Successfully reset {result['reset_count']} preview codes",
-            "reset_count": result['reset_count'],
-            "total_codes": result['total_codes']
-        }
-        
-        # Include errors if any occurred
-        if result['errors']:
-            response_data['warnings'] = result['errors']
-        
-        return create_cors_response(
-            json.dumps(response_data),
-            status_code=200,
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logger.error(f"Error resetting preview codes: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Failed to reset preview codes"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="bulk_load_codes", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def bulk_load_codes_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for bulk load endpoint"""
-    return create_cors_response_from_request(req, "")
-
-
-@app.route(route="reset_codes", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def reset_codes_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for reset endpoint"""
-    return create_cors_response_from_request(req, "")
-
-
 @app.route(route="preview-codes/validate", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
 def validate_preview_code_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for validate endpoint"""
+    """Handle CORS preflight requests for preview code validation"""
     return create_cors_response_from_request(req, "")
 
 
-@app.route(route="preview-codes/stats", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS)
-def get_preview_code_stats_options(req: func.HttpRequest) -> func.HttpResponse:
-    """Handle CORS preflight requests for stats endpoint"""
+@app.route(route="preview-codes-list", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
+def list_preview_codes(req: func.HttpRequest) -> func.HttpResponse:
+    """List all preview codes with their usage status (admin endpoint)"""
+    try:
+        logger.info("[ADMIN] Starting list_preview_codes endpoint")
+        
+        # Get all preview codes from repository
+        preview_codes = generic_repository.get_all_preview_codes()
+        logger.info(f"[ADMIN] Retrieved {len(preview_codes)} preview codes")
+        
+        # Convert to response format
+        code_items = []
+        for code in preview_codes:
+            code_item = PreviewCodeListItem(
+                code=code.code,
+                is_used=code.is_used,
+                used_by=code.used_by_user_id,  # Map to the expected field name
+                used_at=code.used_at.isoformat() if code.used_at else None,
+                created_at=code.created_at.isoformat() if code.created_at else datetime.datetime.utcnow().isoformat()
+            )
+            code_items.append(code_item)
+        
+        # Create response
+        response = PreviewCodeListResponse(
+            success=True,
+            codes=code_items
+        )
+        
+        logger.info(f"[ADMIN] Successfully returning {len(code_items)} preview codes")
+        
+        return create_cors_response(
+            json.dumps(serialize_datetimes(response.model_dump())),
+            origin=req.headers.get('Origin')
+        )
+        
+    except Exception as e:
+        logger.error(f"[ADMIN] Error listing preview codes: {e}")
+        import traceback
+        logger.error(f"[ADMIN] Traceback: {traceback.format_exc()}")
+        
+        # Return error response
+        error_response = PreviewCodeListResponse(
+            success=False,
+            codes=[],
+            error="Failed to fetch preview codes"
+        )
+        
+        return create_cors_response(
+            json.dumps(error_response.model_dump()),
+            status_code=500,
+            origin=req.headers.get('Origin')
+        )
+
+
+@app.route(route="preview-codes-list", methods=["OPTIONS"], auth_level=func.AuthLevel.ANONYMOUS) 
+def list_preview_codes_options(req: func.HttpRequest) -> func.HttpResponse:
+    """Handle CORS preflight requests for admin preview codes list endpoint"""
     return create_cors_response_from_request(req, "")
-
-
-# =====================
-# User Profile API Endpoints
-# =====================
-
-@app.route(route="profiles", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def create_profile(req: func.HttpRequest) -> func.HttpResponse:
-    """Create a new user profile"""
-    try:
-        # Get user_id from header or request
-        user_id = req.headers.get('X-User-Id')
-        if not user_id:
-            body = req.get_json()
-            user_id = body.get('user_id') if body else None
-            
-        if not user_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id is required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Parse request body
-        try:
-            request_data = req.get_json()
-            create_request = CreateUserProfileRequest(**request_data)
-        except Exception as e:
-            return create_cors_response(
-                json.dumps({"error": f"Invalid request data: {str(e)}"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Create profile using repository
-        profile = user_profile_repo.create_user_profile(user_id, create_request)
-        
-        # Also create initial onboarding status
-        onboarding_repo.create_onboarding_status(user_id)
-        
-        # Convert to dict and serialize
-        profile_dict = profile.to_cosmos_dict()
-        serialized_profile = serialize_datetimes(profile_dict)
-        
-        return create_cors_response(
-            json.dumps(serialized_profile),
-            status_code=201,
-            origin=req.headers.get('Origin')
-        )
-        
-    except ValueError as e:
-        if "already exists" in str(e):
-            return create_cors_response(
-                json.dumps({"error": str(e)}),
-                status_code=409,
-                origin=req.headers.get('Origin')
-            )
-        return create_cors_response(
-            json.dumps({"error": str(e)}),
-            status_code=400,
-            origin=req.headers.get('Origin')
-        )
-    except Exception as e:
-        logging.error(f"Error creating profile: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="profiles/{user_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
-def get_profile(req: func.HttpRequest) -> func.HttpResponse:
-    """Get user profile by user_id"""
-    try:
-        user_id = req.route_params.get('user_id')
-        if not user_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id is required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Get profile using repository
-        profile = user_profile_repo.get_user_profile(user_id)
-        
-        if not profile:
-            return create_cors_response(
-                json.dumps({"error": "Profile not found"}),
-                status_code=404,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Convert to dict and serialize
-        profile_dict = profile.to_cosmos_dict()
-        serialized_profile = serialize_datetimes(profile_dict)
-        
-        return create_cors_response(
-            json.dumps(serialized_profile),
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logging.error(f"Error getting profile: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="profiles/{user_id}", methods=["PUT"], auth_level=func.AuthLevel.ANONYMOUS)
-def update_profile(req: func.HttpRequest) -> func.HttpResponse:
-    """Update user profile"""
-    try:
-        user_id = req.route_params.get('user_id')
-        if not user_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id is required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Parse request body
-        try:
-            request_data = req.get_json()
-            update_request = UpdateUserProfileRequest(**request_data)
-        except Exception as e:
-            return create_cors_response(
-                json.dumps({"error": f"Invalid request data: {str(e)}"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Update profile using repository
-        profile = user_profile_repo.update_user_profile(user_id, update_request)
-        
-        if not profile:
-            return create_cors_response(
-                json.dumps({"error": "Profile not found"}),
-                status_code=404,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Convert to dict and serialize
-        profile_dict = profile.to_cosmos_dict()
-        serialized_profile = serialize_datetimes(profile_dict)
-        
-        return create_cors_response(
-            json.dumps(serialized_profile),
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logging.error(f"Error updating profile: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-@app.route(route="profiles/{user_id}", methods=["DELETE"], auth_level=func.AuthLevel.ANONYMOUS)
-def delete_profile(req: func.HttpRequest) -> func.HttpResponse:
-    """Delete user profile and all associated data"""
-    try:
-        user_id = req.route_params.get('user_id')
-        if not user_id:
-            return create_cors_response(
-                json.dumps({"error": "user_id is required"}),
-                status_code=400,
-                origin=req.headers.get('Origin')
-            )
-        
-        # Delete profile using repository (also deletes onboarding and chat data)
-        success = user_profile_repo.delete_user_profile(user_id)
-        
-        if not success:
-            return create_cors_response(
-                json.dumps({"error": "Profile not found"}),
-                status_code=404,
-                origin=req.headers.get('Origin')
-            )
-        
-        return create_cors_response(
-            json.dumps({"message": "Profile and associated data deleted successfully"}),
-            origin=req.headers.get('Origin')
-        )
-        
-    except Exception as e:
-        logging.error(f"Error deleting profile: {e}")
-        return create_cors_response(
-            json.dumps({"error": "Internal server error"}),
-            status_code=500,
-            origin=req.headers.get('Origin')
-        )
-
-
-# =====================
-# Onboarding API Endpoints
-# =====================
-
 @app.route(route="onboarding/{user_id}", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
 def get_onboarding_status(req: func.HttpRequest) -> func.HttpResponse:
     """Get onboarding status for user"""

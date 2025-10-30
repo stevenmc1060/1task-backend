@@ -219,6 +219,45 @@ class GenericRepository:
         except exceptions.CosmosHttpResponseError as e:
             logger.error(f"Error deleting document: {e}")
             raise
+    
+    def get_all_preview_codes(self):
+        """Get all preview codes for admin purposes"""
+        try:
+            from models import PreviewCode, DocumentType
+            
+            logger.info("[REPO GET] Starting get_all_preview_codes")
+            
+            query = "SELECT * FROM c WHERE c.document_type = @document_type ORDER BY c.created_at ASC"
+            parameters = [
+                {"name": "@document_type", "value": DocumentType.PREVIEW_CODE.value}
+            ]
+            
+            logger.info(f"[REPO GET] Query: {query}")
+            logger.info(f"[REPO GET] Parameters: {parameters}")
+            
+            container = self._get_container(PreviewCode)
+            items = list(container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True
+            ))
+            
+            logger.info(f"[REPO GET] Raw query returned {len(items)} preview codes")
+            
+            result = [PreviewCode.from_cosmos_dict(item) for item in items]
+            logger.info(f"[REPO GET] Successfully converted {len(result)} preview codes to model objects")
+            
+            return result
+            
+        except exceptions.CosmosHttpResponseError as e:
+            logger.error(f"[REPO GET] CosmosHttpResponseError: {e}")
+            logger.error(f"[REPO GET] Error details: status_code={e.status_code}, message={e.message}")
+            raise
+        except Exception as e:
+            logger.error(f"[REPO GET] Unexpected error: {e}")
+            import traceback
+            logger.error(f"[REPO GET] Traceback: {traceback.format_exc()}")
+            raise
 
 
 # Create a global instance
